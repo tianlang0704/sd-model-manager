@@ -9,7 +9,7 @@ import wx.lib.newevent
 from wx.lib.agw import ultimatelistctrl
 import wxasync
 
-from sd_model_manager.utils.common import try_load_image
+from sd_model_manager.utils.common import try_load_image, PATH
 from gui.scrolledthumbnail import (
     ScrolledThumbnail,
     Thumb,
@@ -22,7 +22,9 @@ from gui.scrolledthumbnail import (
 from gui.dialogs.metadata import MetadataDialog
 from gui.utils import PUBSUB_HUB, COLUMNS, find_image_path_for_model
 from gui.popup_menu import PopupMenu, PopupMenuItem, create_popup_menu_for_item
+import simplejson
 
+SEARCH_SAVE_FILE = os.path.join(PATH, "search.json")
 
 class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
     def __init__(self, parent, app=None):
@@ -465,12 +467,17 @@ class ResultsNotebook(wx.Panel):
             Key("events", "tree_filter_changed"), self.SubTreeFilterChanged
         )
 
-        self.searchBox = wx.TextCtrl(self, wx.ID_ANY, style=wx.TE_PROCESS_ENTER)
+        # self.searchBox = wx.TextCtrl(self, wx.ID_ANY, style=wx.TE_PROCESS_ENTER)
+        self.searchBox = wx.ComboBox(self, wx.ID_ANY, style=wx.TE_PROCESS_ENTER)
         self.searchButton = wx.Button(self, label="Search")
         self.clearButton = wx.Button(self, label="Clear")
+        self.saveButton = wx.Button(self, label="Save")
+        self.removeButton = wx.Button(self, label="Remove")
 
         wxasync.AsyncBind(wx.EVT_BUTTON, self.OnSearch, self.searchButton)
         wxasync.AsyncBind(wx.EVT_BUTTON, self.OnClear, self.clearButton)
+        wxasync.AsyncBind(wx.EVT_BUTTON, self.OnSave, self.saveButton)
+        wxasync.AsyncBind(wx.EVT_BUTTON, self.OnRemove, self.removeButton)
         wxasync.AsyncBind(wx.EVT_TEXT_ENTER, self.OnSearch, self.searchBox)
         self.notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.OnPageChanged)
 
@@ -478,12 +485,15 @@ class ResultsNotebook(wx.Panel):
         self.sizerSearch.Add(self.searchBox, proportion=5, flag=wx.LEFT | wx.EXPAND | wx.ALL, border=5)
         self.sizerSearch.Add(self.searchButton, proportion=1, flag=wx.ALL, border=5)
         self.sizerSearch.Add(self.clearButton, proportion=1, flag=wx.ALL, border=5)
+        self.sizerSearch.Add(self.saveButton, proportion=1, flag=wx.ALL, border=5)
+        self.sizerSearch.Add(self.removeButton, proportion=1, flag=wx.ALL, border=5)
 
         self.sizer = wx.BoxSizer(wx.VERTICAL)
         self.sizer.Add(self.notebook, proportion=1, flag=wx.EXPAND | wx.ALL, border=5)
         self.sizer.Add(self.sizerSearch, flag=wx.EXPAND | wx.ALL, border=5)
 
         self.SetSizerAndFit(self.sizer)
+        self.UpdateSearchOptions()
 
     def get_selection(self):
         return self.results_panel.get_selection()
@@ -544,3 +554,30 @@ class ResultsNotebook(wx.Panel):
     async def OnClear(self, evt):
         self.searchBox.SetValue("")
         await self.app.frame.search("")
+
+    async def OnSave(self, evt):
+        options = self.searchBox.GetItems()
+        value = self.searchBox.GetValue()
+        options.append(value)
+        with open(SEARCH_SAVE_FILE, "w") as f:
+            jsonStr = simplejson.dumps(options)
+            f.write(jsonStr)
+        self.UpdateSearchOptions(value)
+    
+    def UpdateSearchOptions(self, value = ""):
+        if not os.path.exists(SEARCH_SAVE_FILE):
+            return
+        with open(SEARCH_SAVE_FILE, "r") as f:
+            options = simplejson.loads(f.read())
+            self.searchBox.SetItems(options)
+        self.searchBox.SetValue(value)
+
+    async def OnRemove(self, evt):
+        value = self.searchBox.GetValue()
+        options = self.searchBox.GetItems()
+        if value in options:
+            options.remove(value)
+        with open(SEARCH_SAVE_FILE, "w") as f:
+            jsonStr = simplejson.dumps(options)
+            f.write(jsonStr)
+        self.UpdateSearchOptions(value)

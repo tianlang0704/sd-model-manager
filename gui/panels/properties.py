@@ -11,6 +11,17 @@ import wx.lib.mixins.listctrl as listmix
 from gui.rating_ctrl import RatingCtrl, EVT_RATING_CHANGED
 from gui.utils import PUBSUB_HUB
 
+taglist = [
+    "sd-turbo", 
+    "sd-xl", 
+    "sd-1.5", 
+    "sd-1.4", 
+    "sd-lora", 
+    "sd-vae",
+    "sd-embedding",
+    "sd-controlnet",
+    "sd-inpaint",
+]
 
 class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):
     def __init__(self, parent, app=None):
@@ -66,6 +77,10 @@ class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):
         for key, label, style, size in ctrls:
             if style is not None:
                 ctrl = wx.TextCtrl(self, id=wx.ID_ANY, size=size, value="", style=style)
+            elif "tags" == key:
+                choices = ["< blank >", "< keep >"]
+                choices.extend(taglist)
+                ctrl = wx.ComboBox(self, id=wx.ID_ANY, value="", choices=choices)
             else:
                 choices = ["< blank >", "< keep >"]
                 ctrl = wx.ComboBox(self, id=wx.ID_ANY, value="", choices=choices)
@@ -187,6 +202,7 @@ class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):
     def modify_value(self, key, label, value):
         if key in self.values and value != self.values[key]:
             self.app.frame.toolbar.EnableTool(wx.ID_SAVE, True)
+            self.app.frame.toolbar.EnableTool(wx.ID_CLEAR, True)
             self.changes[key] = value
             text = label.GetLabel()
             if not text.endswith("*"):
@@ -212,8 +228,11 @@ class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):
         self.changes = {}
 
         self.app.frame.toolbar.EnableTool(wx.ID_SAVE, False)
+        self.app.frame.toolbar.EnableTool(wx.ID_CLEAR, False)
 
-    async def commit_changes(self):
+    async def commit_changes(self, isForce = False):
+        if isForce:
+            self.is_committing = False
         if not self.changes or not self.selected_items or self.is_committing:
             return
 
@@ -308,6 +327,8 @@ class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):
                 ctrl.SetEditable(True)
 
                 choices = ["< blank >", "< keep >"]
+                if (name == "tags"):
+                    choices.extend(taglist)
 
                 def get_value(item):
                     value = item.get(name, "< blank >")
@@ -345,14 +366,14 @@ class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):
                 filename = os.path.basename(items[0]["filepath"])
                 filepath = items[0]["filepath"]
                 id = str(items[0]["id"])
-                tags = (items[0].get("tags") or "").split()
+                # tags = (items[0].get("tags") or "").split()
                 rating = items[0].get("rating") or 0
                 self.ctrl_rating.ChangeValue(rating)
             else:
                 filename = "< multiple >"
                 filepath = "< multiple >"
                 id = "< multiple >"
-                tags = ["< multiple >"]
+                # tags = ["< multiple >"]
                 rating = None
                 for item in items:
                     nrating = item.get("rating") or 0
@@ -373,26 +394,26 @@ class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):
         pass
 
 
-class MetadataTagsList(wx.ListCtrl, listmix.ListCtrlAutoWidthMixin):
-    def __init__(self, parent):
-        self.tags = []
+# class MetadataTagsList(wx.ListCtrl, listmix.ListCtrlAutoWidthMixin):
+#     def __init__(self, parent):
+#         self.tags = []
 
-        wx.ListCtrl.__init__(
-            self,
-            parent,
-            id=wx.ID_ANY,
-            style=wx.LC_REPORT | wx.LC_VIRTUAL | wx.LC_HRULES | wx.LC_VRULES,
-        )
-        self.EnableAlternateRowColours(True)
-        self.InsertColumn(0, "Tag")
-        self.setResizeColumn(0)
+#         wx.ListCtrl.__init__(
+#             self,
+#             parent,
+#             id=wx.ID_ANY,
+#             style=wx.LC_REPORT | wx.LC_VIRTUAL | wx.LC_HRULES | wx.LC_VRULES,
+#         )
+#         self.EnableAlternateRowColours(True)
+#         self.InsertColumn(0, "Tag")
+#         self.setResizeColumn(0)
 
-    def set_tags(self, tags):
-        self.tags = tags
-        self.Refresh()
+#     def set_tags(self, tags):
+#         self.tags = tags
+#         self.Refresh()
 
-    def Clear(self):
-        self.tags = []
+#     def Clear(self):
+#         self.tags = []
 
-    def OnGetItemText(self, item, col):
-        return self.tags[item]
+#     def OnGetItemText(self, item, col):
+#         return self.tags[item]

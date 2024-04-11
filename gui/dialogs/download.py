@@ -34,7 +34,7 @@ VAES = ["animefull-latest", "kl-f8-anime", "vae-ft-mse"]
 
 DEFAULT_POSITIVE_PROMPT = "masterpiece"
 DEFAULT_NEGATIVE_PROMPT = "(worst quality, low quality:1.2)"
-
+OVERRIDE_KEYWORD = "override:"
 
 def load_prompt(name):
     with open(
@@ -57,20 +57,16 @@ class PreviewPromptData:
     seed: int
     denoise: float
     checkpoint: str
-    vae: str
     positive: str
     negative: str
-    lora_name: str
 
     def to_prompt(self):
         prompt = load_prompt("default.json")
-
         prompt["3"]["inputs"]["seed"] = self.seed
+        prompt["3"]["inputs"]["denoise"] = self.denoise
         prompt["4"]["inputs"]["ckpt_name"] = self.checkpoint
-        prompt["11"]["inputs"]["vae_name"] = self.vae
         prompt["6"]["inputs"]["text"] = self.positive
         prompt["7"]["inputs"]["text"] = self.negative
-        prompt["10"]["inputs"]["lora_name"] = self.lora_name
 
         return prompt
 
@@ -84,7 +80,6 @@ class PreviewPromptData:
         prompt["17"]["inputs"]["vae_name"] = self.vae
         prompt["6"]["inputs"]["text"] = self.positive
         prompt["7"]["inputs"]["text"] = self.negative
-        prompt["21"]["inputs"]["lora_name"] = self.lora_name
         prompt["18"]["inputs"]["image"] = f"{filename} [output]"
 
         return prompt
@@ -191,7 +186,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             min_val=0,
             max_val=1,
             increment=0.01,
-            value=0.55,
+            value=1,
             agwStyle=floatspin.FS_LEFT,
         )
         self.spinner_denoise.SetFormat("%f")
@@ -424,32 +419,6 @@ class PreviewGeneratorDialog(wx.Dialog):
         if e is not None:
             e.set()
 
-    def find_checkpoint(self):
-        checkpoints = self.comfy_api.get_filepaths("checkpoints")["filepaths"]
-        if not checkpoints:
-            return None
-        for name in CHECKPOINTS:
-            name = name.lower()
-            for ckpt in checkpoints:
-                if os.path.basename(ckpt).lower().startswith(name):
-                    return ckpt
-        print(
-            f"WARNING: Couldn't find recommended checkpoint, using first in list: {checkpoints[0]}"
-        )
-        return checkpoints[0]
-
-    def find_vae(self):
-        vaes = self.comfy_api.get_filepaths("vae")["filepaths"]
-        if not vaes:
-            return None
-        for name in VAES:
-            name = name.lower()
-            for vae in vaes:
-                if os.path.basename(vae).lower().startswith(name):
-                    return vae
-        print(f"WARNING: Couldn't find recommended VAE, using first in list: {vaes[0]}")
-        return vaes[0]
-
     def get_tags(self, item, count=None):
         tags = []
         tag_freq = item.get("tag_frequency")
@@ -470,34 +439,10 @@ class PreviewGeneratorDialog(wx.Dialog):
             self.spinner_denoise.GetValue(),
         )
 
-    def get_lora_name(self, item):
-        filepath = item["filepath"]
-        folder_name = "loras"
-        lora_name = self.comfy_api.get_relative_path(folder_name, filepath)[
-            "relative_path"
-        ]
-        if lora_name is None:
-            raise RuntimeError(
-                f"LoRA not found in ComfyUI models list.\nEnsure it's included under the list of paths to scan in the ComfyUI configuration.\n{filepath}"
-            )
-        return lora_name
-
     def assemble_prompt_data(self, item):
         options = self.get_prompt_options()
 
-        lora_name = self.get_lora_name(item)
-
-        checkpoint = self.find_checkpoint()
-        if checkpoint is None:
-            raise RuntimeError(
-                f"Couldn't find a Stable Diffusion checkpoint to use from this list:\n{', '.join(CHECKPOINTS)}"
-            )
-
-        vae = self.find_vae()
-        if vae is None:
-            raise RuntimeError(
-                f"Couldn't find a Stable Diffusion VAE to use from this list:\n{', '.join(VAES)}"
-            )
+        checkpoint = item["filename"]
 
         if options.seed == -1:
             seed = random.randint(0, 2**16)
@@ -509,10 +454,26 @@ class PreviewGeneratorDialog(wx.Dialog):
         print(f"Seed: {seed}")
 
         positive = f"{options.prompt_before}"
+        posKey = item["keywords"]
+        if posKey:
+            if posKey.startswith(OVERRIDE_KEYWORD):
+                positive = ""
+                posKey = posKey.replace(OVERRIDE_KEYWORD, "")
+            else:
+                posKey = f", {posKey}"
+            positive += posKey
         negative = options.prompt_after
+        negKey = item["negative_keywords"]
+        if negKey:
+            if negKey.startswith(OVERRIDE_KEYWORD):
+                negative = ""
+                negKey = negKey.replace(OVERRIDE_KEYWORD, "")
+            else:
+                negKey = f", {negKey}"
+            negative += negKey
 
         data = PreviewPromptData(
-            seed, denoise, checkpoint, vae, positive, negative, lora_name
+            seed, denoise, checkpoint, positive, negative
         )
         return data
 

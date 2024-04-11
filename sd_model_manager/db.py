@@ -54,7 +54,10 @@ def to_datetime(s):
 def to_json(s):
     if s is None or s == "None":
         return None
-    return simplejson.loads(s)
+    try:
+        return simplejson.loads(s)
+    except Exception as ex:
+        return None
 
 
 def to_unique_tags(s):
@@ -163,9 +166,7 @@ class DB:
 
         print(f"Database is at {path}.db.")
 
-        if count == 0:
-            print("Database was newly created, running initial scan.")
-            await self.scan(model_paths)
+        await self.scan(model_paths)
 
     async def scan(self, paths):
         for p in paths:
@@ -178,13 +179,20 @@ class DB:
             for path in paths:
                 path = os.path.normpath(path)
                 files = list(glob.iglob(f"{path}/**/*.safetensors", recursive=True))
+                files += list(glob.iglob(f"{path}/**/*.ckpt", recursive=True))
+                files += list(glob.iglob(f"{path}/**/*.pt", recursive=True))
 
                 for f in tqdm.tqdm(files):
                     f = os.path.normpath(f)
+                    filepath = f
+                    query = select(LoRAModel).filter(LoRAModel.filepath == filepath)
+                    row = (await session.execute(query)).one_or_none()
+                    if row is not None:
+                        continue
                     try:
                         metadata = safetensors_hack.read_metadata(f)
                     except:
-                        continue
+                        metadata = {}
 
                     display_name = metadata.get("ssmd_display_name", None)
                     author = metadata.get("ssmd_author", None)
@@ -196,19 +204,7 @@ class DB:
                     rating = to_int(metadata.get("ssmd_rating", None))
                     tags = metadata.get("ssmd_tags", None)
 
-                    filepath = f
-                    query = select(LoRAModel).filter(LoRAModel.filepath == filepath)
-                    # query = query.options(selectin_polymorphic(SDModel, [LoRAModel])).options(
-                    #     selectinload(SDModel.preview_images)
-                    # )
-
                     id = None
-                    row = (await session.execute(query)).one_or_none()
-                    if row is not None:
-                        # print(f"Exists: {filepath} {row}")
-                        # id = row[0].id
-                        continue
-
                     # if "ss_lr_scheduler" not in metadata:
                     #     continue
                     lora_model = LoRAModel(

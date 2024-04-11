@@ -19,6 +19,8 @@ UntypedStorage = (
 
 def read_metadata(filename):
     """Reads the JSON metadata from a .safetensors file"""
+    if (not filename.endswith(".safetensors")):
+        return {}
     with open(filename, mode="r", encoding="utf8") as file_obj:
         with mmap.mmap(file_obj.fileno(), length=0, access=mmap.ACCESS_READ) as m:
             header = m.read(8)

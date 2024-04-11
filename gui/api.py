@@ -61,24 +61,6 @@ class ComfyAPI:
     def __init__(self):
         self.server_address = "127.0.0.1:8188"
 
-    def get_filepaths(self, folder):
-        params = {
-            "folder": folder,
-        }
-        query = urllib.parse.urlencode(params)
-        with urllib.request.urlopen(
-            f"http://{self.server_address}/filepaths?{query}"
-        ) as response:
-            return simplejson.loads(response.read())
-
-    def get_relative_path(self, folder, full_path):
-        params = {"folder": folder, "full_path": full_path}
-        query = urllib.parse.urlencode(params)
-        with urllib.request.urlopen(
-            f"http://{self.server_address}/relative_path?{query}"
-        ) as response:
-            return simplejson.loads(response.read())
-
     def get_history(self, prompt_id):
         with urllib.request.urlopen(
             f"http://{self.server_address}/history/{prompt_id}"

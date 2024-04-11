@@ -52,7 +52,7 @@ def try_load_image(file):
         return None
 
 
-def find_image(filepath, load=False):
+def find_image(filepath, load=False, fuzzy=True):
     path = os.path.dirname(filepath)
     basename = os.path.splitext(os.path.basename(filepath))[0]
 
@@ -65,13 +65,14 @@ def find_image(filepath, load=False):
         elif os.path.isfile(file):
             return None, file
 
-    for fname in os.listdir(path):
-        file = os.path.realpath(os.path.join(path, fname))
-        if basename in file:
-            if load:
-                image = try_load_image(file)
-                if image:
-                    return image, file
-            elif is_image_path(file):
-                return None, file
+    if fuzzy:
+        for fname in os.listdir(path):
+            file = os.path.realpath(os.path.join(path, fname))
+            if basename in file:
+                if load:
+                    image = try_load_image(file)
+                    if image:
+                        return image, file
+                elif is_image_path(file):
+                    return None, file
     return None, None

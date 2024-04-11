@@ -38,6 +38,6 @@ class App(wxasync.WxAsyncApp):
         return self.frame.FromDIP(*args)
 
     async def on_init_callback(self):
-        self.frame.results_panel.search_box.SetFocus()
+        self.frame.results_panel.searchBox.SetFocus()
         self.SetStatusText("Ready")
         await self.frame.search("")

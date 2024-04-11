@@ -465,22 +465,23 @@ class ResultsNotebook(wx.Panel):
             Key("events", "tree_filter_changed"), self.SubTreeFilterChanged
         )
 
-        self.search_box = wx.TextCtrl(self, wx.ID_ANY, style=wx.TE_PROCESS_ENTER)
-        self.button = wx.Button(self, label="Search")
+        self.searchBox = wx.TextCtrl(self, wx.ID_ANY, style=wx.TE_PROCESS_ENTER)
+        self.searchButton = wx.Button(self, label="Search")
+        self.clearButton = wx.Button(self, label="Clear")
 
-        wxasync.AsyncBind(wx.EVT_BUTTON, self.OnSearch, self.button)
-        wxasync.AsyncBind(wx.EVT_TEXT_ENTER, self.OnSearch, self.search_box)
+        wxasync.AsyncBind(wx.EVT_BUTTON, self.OnSearch, self.searchButton)
+        wxasync.AsyncBind(wx.EVT_BUTTON, self.OnClear, self.clearButton)
+        wxasync.AsyncBind(wx.EVT_TEXT_ENTER, self.OnSearch, self.searchBox)
         self.notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.OnPageChanged)
 
-        self.sizer2 = wx.BoxSizer(wx.HORIZONTAL)
-        self.sizer2.Add(
-            self.search_box, proportion=5, flag=wx.LEFT | wx.EXPAND | wx.ALL, border=5
-        )
-        self.sizer2.Add(self.button, proportion=1, flag=wx.ALL, border=5)
+        self.sizerSearch = wx.BoxSizer(wx.HORIZONTAL)
+        self.sizerSearch.Add(self.searchBox, proportion=5, flag=wx.LEFT | wx.EXPAND | wx.ALL, border=5)
+        self.sizerSearch.Add(self.searchButton, proportion=1, flag=wx.ALL, border=5)
+        self.sizerSearch.Add(self.clearButton, proportion=1, flag=wx.ALL, border=5)
 
         self.sizer = wx.BoxSizer(wx.VERTICAL)
         self.sizer.Add(self.notebook, proportion=1, flag=wx.EXPAND | wx.ALL, border=5)
-        self.sizer.Add(self.sizer2, flag=wx.EXPAND | wx.ALL, border=5)
+        self.sizer.Add(self.sizerSearch, flag=wx.EXPAND | wx.ALL, border=5)
 
         self.SetSizerAndFit(self.sizer)
 
@@ -538,4 +539,8 @@ class ResultsNotebook(wx.Panel):
             self.results_gallery.SetThumbs(list.filtered)
 
     async def OnSearch(self, evt):
-        await self.app.frame.search(self.search_box.GetValue())
+        await self.app.frame.search(self.searchBox.GetValue())
+    
+    async def OnClear(self, evt):
+        self.searchBox.SetValue("")
+        await self.app.frame.search("")

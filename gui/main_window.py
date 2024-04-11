@@ -51,6 +51,16 @@ class MainWindow(wx.Frame):
             "Save current changes to database",
             None,
         )
+        self.tool_clear = self.toolbar.AddTool(
+            wx.ID_CLEAR,
+            "Clear",
+            wx.ArtProvider.GetBitmap(wx.ART_ERROR, wx.ART_OTHER, icon_size),
+            wx.NullBitmap,
+            wx.ITEM_NORMAL,
+            "Clear",
+            "Clear current changes",
+            None,
+        )
         self.tool_open_folder = self.toolbar.AddTool(
             ids.ID_OPEN_FOLDER,
             "Open Folder",
@@ -75,10 +85,12 @@ class MainWindow(wx.Frame):
         self.toolbar.Realize()
 
         self.toolbar.EnableTool(wx.ID_SAVE, False)
+        self.toolbar.EnableTool(wx.ID_CLEAR, False)
         self.toolbar.EnableTool(ids.ID_OPEN_FOLDER, False)
         self.toolbar.EnableTool(ids.ID_GENERATE_PREVIEWS, False)
 
         wxasync.AsyncBind(wx.EVT_TOOL, self.OnSave, self, id=wx.ID_SAVE)
+        wxasync.AsyncBind(wx.EVT_TOOL, self.OnClearChange, self, id=wx.ID_CLEAR)
         wxasync.AsyncBind(wx.EVT_TOOL, self.OnOpenFolder, self, id=ids.ID_OPEN_FOLDER)
         wxasync.AsyncBind(
             wx.EVT_TOOL, self.OnGeneratePreviews, self, id=ids.ID_GENERATE_PREVIEWS
@@ -87,7 +99,8 @@ class MainWindow(wx.Frame):
         self.accel_tbl = wx.AcceleratorTable(
             [
                 (wx.ACCEL_CTRL, ord("S"), wx.ID_SAVE),
-                (wx.ACCEL_CTRL, ord("P"), ids.ID_GENERATE_PREVIEWS),
+                (wx.ACCEL_CTRL, ord("D"), wx.ID_CLEAR),
+                (wx.ACCEL_CTRL, ord("Q"), ids.ID_GENERATE_PREVIEWS),
             ]
         )
         self.SetAcceleratorTable(self.accel_tbl)
@@ -174,7 +187,11 @@ class MainWindow(wx.Frame):
         await self.image_panel.SubItemSelected(None, selection)
 
     async def OnSave(self, evt):
-        await self.properties_panel.commit_changes()
+        await self.properties_panel.commit_changes(True)
+        self.Refresh()
+
+    async def OnClearChange(self, evt):
+        self.properties_panel.clear_changes()
         self.Refresh()
 
     async def OnOpenFolder(self, evt):
@@ -189,7 +206,6 @@ class MainWindow(wx.Frame):
         selection = self.results_panel.get_selection()
         if len(selection) == 0:
             return
-
         await gui.dialogs.download.run(self.app, selection)
         # dialog = GeneratePreviewsDialog(self, selection, app=self.app)
         # dialog.CenterOnParent(wx.BOTH)
@@ -203,6 +219,7 @@ class MainWindow(wx.Frame):
     async def SubItemSelected(self, key, items):
         selected = len(items) > 0
         self.toolbar.EnableTool(wx.ID_SAVE, False)
+        self.toolbar.EnableTool(wx.ID_CLEAR, False)
         self.toolbar.EnableTool(ids.ID_GENERATE_PREVIEWS, selected)
         self.toolbar.EnableTool(ids.ID_OPEN_FOLDER, selected)
 

@@ -18,3 +18,5 @@ client.spec
 *flycheck_*
 *_flymake.*
 .#*
+*.log
+.vscode

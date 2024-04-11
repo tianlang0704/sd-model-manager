@@ -16,15 +16,41 @@ from sd_model_manager.models.sd_models import SDModel, LoRAModel, LoRAModelSchem
 class AbstractCriteria:
     re: Optional[Pattern]
 
+    def need_join(self):
+        return False
+    
+    def need_apply(self):
+        return False
+
+    def match(self, query_string):
+        return self.re.search(query_string)
+    
+    def can_process(self, query_string):
+        if self.re is None:
+            return True
+        matches = self.match(query_string)
+        return matches is not None
+
+    def join_statement(self, ori_stmt, query_string):
+        if self.re is not None:
+            matches = self.match(query_string)
+            if not matches:
+                return ori_stmt, query_string
+            query_string = re.sub(self.re, "", query_string).strip()
+            return self.do_join_statement(ori_stmt, matches), query_string
+        return self.do_join_statement(ori_stmt, query_string)
+    
+    def do_join_statement(self, ori_stmt, matches):
+        pass
+            
     def apply(self, orm_query, query_string):
         if self.re is not None:
-            matches = self.re.search(query_string)
+            matches = self.match(query_string)
             if matches is None:
                 return orm_query, query_string
             query_string = re.sub(self.re, "", query_string).strip()
             return self.do_apply(orm_query, matches), query_string
-
-        return self.do_apply(orm_query, query_string), query_string
+        return self.do_apply(orm_query, query_string)
 
     def do_apply(self, orm_query, matches):
         pass
@@ -32,39 +58,59 @@ class AbstractCriteria:
 
 class StringCriteria(AbstractCriteria):
     def __init__(self, prefix, column, exact=False):
-        self.re = re.compile(rf'(^| +)(-)?{prefix}:("([^"]+)"|(\S+))', re.I)
+        self.re = re.compile(rf'(^| +)(\|\|)?(-)?{prefix}:("([^"]+)"|(\S+?))(?=$|\s|\|\|)', re.I)
         self.prefix = prefix
         self.column = column
         self.exact = exact
 
-    def do_apply(self, orm_query, matches):
-        _not = matches[2]
-        m = matches[4] or matches[3]
+    def need_join(self):
+        return True
+    
+    def need_apply(self):
+        return False
+
+    def do_join_statement(self, ori_stmt, matches):
+        _or = matches[2]
+        _not = matches[3]
+        m = matches[5] or matches[4]
         if self.exact:
             stmt = func.lower(self.column) == m.lower()
         else:
             stmt = self.column.ilike(f"%{m}%")
         if _not:
             stmt = or_(self.column.is_(None), not_(stmt))
-        return orm_query.where(stmt)
+
+        if (ori_stmt is None):
+            return stmt
+        elif _or:
+            return or_(ori_stmt, stmt)
+        else:
+            return and_(ori_stmt, stmt)
 
 
 class NumberCriteria(AbstractCriteria):
     def __init__(self, prefix, column, type):
         self.re = re.compile(
-            rf"(^| +)(-)?{prefix}:(==|!=|>|<|>=|<=)?(\d+(?:\.\d+)?)", re.I
+            rf"(^| +)(\|\|)?(-)?{prefix}:(==|!=|>|<|>=|<=)?(\d+?(?:\.\d+)?)(?=$|\s|\|\|)", re.I
         )
         self.prefix = prefix
         self.column = column
         self.type = type
 
-    def do_apply(self, orm_query, matches):
-        _not = matches[2]
-        op = matches[3] or "=="
+    def need_join(self):
+        return True
+    
+    def need_apply(self):
+        return False
+    
+    def do_join_statement(self, ori_stmt, matches):
+        _or = matches[2]
+        _not = matches[3]
+        op = matches[4] or "=="
         try:
-            num = self.type(matches[4])
+            num = self.type(matches[5])
         except Exception:
-            return orm_query
+            return ori_stmt
         if op == "!=":
             stmt = self.column != num
         elif op == ">":
@@ -82,27 +128,45 @@ class NumberCriteria(AbstractCriteria):
             stmt = or_(self.column.is_(None), not_(stmt))
         else:
             stmt = and_(self.column.is_not(None), stmt)
-
-        return orm_query.where(stmt)
+            
+        if (ori_stmt is None):
+            return stmt
+        elif _or:
+            return or_(ori_stmt, stmt)
+        else:
+            return and_(ori_stmt, stmt)
 
 
 class HasCriteria(AbstractCriteria):
     def __init__(self, suffix, column, compare="", count=False):
-        self.re = re.compile(rf"(^| +)(-)?has:{suffix}", re.I)
+        self.re = re.compile(rf"(^| +)(\|\|)?(-)?has:{suffix}", re.I)
         self.suffix = suffix
         self.column = column
         self.compare = ""
         self.count = count
 
-    def do_apply(self, orm_query, matches):
-        no = matches[2] is not None
+    def need_join(self):
+        return True
+    
+    def need_apply(self):
+        return False
+
+    def do_join_statement(self, ori_stmt, matches):
+        _or = matches[2]
+        _not = matches[3] is not None
         if self.count:
             stmt = self.column.any()
         else:
             stmt = and_(self.column.is_not(None), self.column != self.compare)
-        if no:
+        if _not:
             stmt = not_(stmt)
-        return orm_query.where(stmt)
+
+        if (ori_stmt is None):
+            return stmt
+        elif _or:
+            return or_(ori_stmt, stmt)
+        else:
+            return and_(ori_stmt, stmt)
 
 
 class OrderByCriteria(AbstractCriteria):
@@ -114,6 +178,12 @@ class OrderByCriteria(AbstractCriteria):
         if reversed is None:
             self.reversed = isinstance(default, (int, float))
         self.default = default
+
+    def need_join(self):
+        return False
+    
+    def need_apply(self):
+        return True
 
     def do_apply(self, orm_query, matches):
         reverse = matches[2] is not None
@@ -129,20 +199,47 @@ class BasicCriteria(AbstractCriteria):
     def __init__(self):
         self.re = None
 
-    def do_apply(self, orm_query, query_string):
+    def need_join(self):
+        return True
+    
+    def need_apply(self):
+        return False
+
+    def can_process(self, query_string):
+        return bool(query_string.strip())
+    
+    def do_join_statement(self, ori_stmt, query_string):
+        _or = False
+        query_string = query_string.strip()
+        if (query_string.startswith("||")):
+            _or = True
+            query_string = query_string[2:]
+
+        stmt = None
         for s in query_string.split(" "):
+            newStmt = None
             s = s.strip()
             if s:
-                orm_query = orm_query.where(
-                    or_(
-                        SDModel.display_name.ilike(f"%{s}%"),
-                        SDModel.filepath.ilike(f"%{s}%"),
-                    )
+                newStmt = or_(
+                    SDModel.display_name.ilike(f"%{s}%"),
+                    SDModel.filepath.ilike(f"%{s}%"),
                 )
-        return orm_query
+            if newStmt is not None:
+                if stmt is None:
+                    stmt = newStmt
+                else:
+                    stmt = and_(stmt, newStmt)
+        if stmt is None:
+            return ori_stmt, ""
+        if (ori_stmt is None):
+            return stmt, ""
+        elif _or:
+            return or_(ori_stmt, stmt), ""
+        else:
+            return and_(ori_stmt, stmt), ""
 
 
-ALL_CRITERIA = [
+ALL_CRITERIA: list[AbstractCriteria] = [
     OrderByCriteria("id", SDModel.id),
     OrderByCriteria("root_path", SDModel.root_path),
     OrderByCriteria("filepath", SDModel.filepath),
@@ -240,7 +337,19 @@ ALL_CRITERIA = [
 
 def build_search_query(orm_query, query_string):
     for criteria in ALL_CRITERIA:
-        orm_query, query_string = criteria.apply(orm_query, query_string)
+        if not criteria.need_apply():
+            continue
+        while criteria.can_process(query_string):
+            orm_query, query_string = criteria.apply(orm_query, query_string)
+
+    stmt = None
+    for criteria in ALL_CRITERIA:
+        if not criteria.need_join():
+            continue
+        while criteria.can_process(query_string):
+            stmt, query_string = criteria.join_statement(stmt, query_string)
+    if stmt is not None:
+        orm_query = orm_query.where(stmt)
 
     return orm_query
 

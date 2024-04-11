@@ -54,7 +54,7 @@ def find_image_for_model(item):
 
     if image is None:
         filepath = item["filepath"]
-        image, image_path = find_image(filepath, load=True)
+        image, image_path = find_image(filepath, load=True, fuzzy=False)
 
     return image, image_path
 
@@ -199,25 +199,25 @@ COLUMNS = [
     ColumnInfo("Name", lambda m: m["display_name"], is_meta=True, width=100),
     ColumnInfo("Author", lambda m: m["author"], is_meta=True, width=100),
     ColumnInfo("Rating", lambda m: format_rating(m["rating"]), is_meta=True, width=60),
-    ColumnInfo("Dim.", lambda m: format_network_alpha(m["network_dim"]), width=60),
-    ColumnInfo("Alpha", lambda m: format_network_alpha(m["network_alpha"]), width=60),
+    ColumnInfo("Dim.", lambda m: format_network_alpha(m["network_dim"]), width=60, is_visible=False),
+    ColumnInfo("Alpha", lambda m: format_network_alpha(m["network_alpha"]), width=60, is_visible=False),
     ColumnInfo("Resolution", lambda m: m["resolution_width"]),
     ColumnInfo("Unique Tags", lambda m: m["unique_tags"]),
-    ColumnInfo("Learning Rate", lambda m: m["learning_rate"]),
-    ColumnInfo("UNet LR", lambda m: m["unet_lr"]),
-    ColumnInfo("Text Encoder LR", lambda m: m["text_encoder_lr"]),
-    ColumnInfo("Optimizer", format_optimizer, width=120),
-    ColumnInfo("Optimizer Args", format_optimizer_args, width=240),
-    ColumnInfo("Scheduler", lambda m: m["lr_scheduler"], width=120),
-    ColumnInfo("# Train Images", lambda m: m["num_train_images"]),
-    ColumnInfo("# Reg Images", lambda m: m["num_reg_images"]),
-    ColumnInfo("# Batches/Epoch", lambda m: m["num_batches_per_epoch"]),
-    ColumnInfo("# Epochs", lambda m: m["num_epochs"]),
-    ColumnInfo("Epoch", lambda m: m["epoch"]),
-    ColumnInfo("Total Batch Size", lambda m: m["total_batch_size"]),
-    ColumnInfo("Keep Tokens", lambda m: m["keep_tokens"]),
-    ColumnInfo("Noise Offset", lambda m: m["noise_offset"]),
-    ColumnInfo("Shorthash", format_shorthash, width=100),
+    ColumnInfo("Learning Rate", lambda m: m["learning_rate"], is_visible=False),
+    ColumnInfo("UNet LR", lambda m: m["unet_lr"], is_visible=False),
+    ColumnInfo("Text Encoder LR", lambda m: m["text_encoder_lr"], is_visible=False),
+    ColumnInfo("Optimizer", format_optimizer, width=120, is_visible=False),
+    ColumnInfo("Optimizer Args", format_optimizer_args, width=240, is_visible=False),
+    ColumnInfo("Scheduler", lambda m: m["lr_scheduler"], width=120, is_visible=False),
+    ColumnInfo("# Train Images", lambda m: m["num_train_images"], is_visible=False),
+    ColumnInfo("# Reg Images", lambda m: m["num_reg_images"], is_visible=False),
+    ColumnInfo("# Batches/Epoch", lambda m: m["num_batches_per_epoch"], is_visible=False),
+    ColumnInfo("# Epochs", lambda m: m["num_epochs"], is_visible=False),
+    ColumnInfo("Epoch", lambda m: m["epoch"], is_visible=False),
+    ColumnInfo("Total Batch Size", lambda m: m["total_batch_size"], is_visible=False),
+    ColumnInfo("Keep Tokens", lambda m: m["keep_tokens"], is_visible=False),
+    ColumnInfo("Noise Offset", lambda m: m["noise_offset"], is_visible=False),
+    ColumnInfo("Shorthash", format_shorthash, width=100, is_visible=False),
     ColumnInfo(
         "Training Comment", lambda m: m["training_comment"], width=140, is_visible=False
     ),
@@ -225,6 +225,7 @@ COLUMNS = [
         "Train Date",
         lambda m: m["training_started_at"],
         width=170,
+        is_visible=False
     ),
     ColumnInfo("Tags", lambda m: m["tags"], is_meta=True, width=140),
     ColumnInfo(

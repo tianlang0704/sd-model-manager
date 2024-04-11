@@ -59,21 +59,72 @@ class PreviewPromptData:
     checkpoint: str
     positive: str
     negative: str
+    tags: str
 
     def to_prompt(self):
+        firstTag = ""
+        if self.tags:
+            firstTag = self.tags.split(",")[0].strip()
+        keywordToFunc = {
+            "sd-1.5": self.to_prompt_default,
+            "sd-xl": self.to_prompt_xl,
+            "sd-turbo": self.to_prompt_turbo,
+            "sd-merge-turbo": self.to_prompt_merge_turbo,
+            "sd-lora": self.to_prompt_lora,
+        }
+        for keyword in keywordToFunc:
+            if keyword == firstTag:
+                return keywordToFunc[keyword]()
+        return self.to_prompt_default()
+    
+    def to_prompt_lora(self):
+        prompt = load_prompt("lora.json")
+        prompt["3"]["inputs"]["seed"] = self.seed
+        prompt["3"]["inputs"]["denoise"] = self.denoise
+        prompt["230"]["inputs"]["lora_name"] = self.checkpoint
+        prompt["6"]["inputs"]["text"] = self.positive
+        prompt["7"]["inputs"]["text"] = self.negative
+        return prompt
+    
+    def to_prompt_merge_turbo(self):
+        prompt = load_prompt("merge_turbo.json")
+        prompt["5"]["inputs"]["seed"] = self.seed
+        prompt["5"]["inputs"]["denoise"] = self.denoise
+        prompt["1"]["inputs"]["ckpt_name"] = self.checkpoint
+        prompt["3"]["inputs"]["text"] = self.positive
+        prompt["4"]["inputs"]["text"] = self.negative
+        return prompt
+
+    def to_prompt_turbo(self):
+        prompt = load_prompt("turbo.json")
+        prompt["13"]["inputs"]["noise_seed"] = self.seed
+        prompt["31"]["inputs"]["value"] = self.denoise
+        prompt["20"]["inputs"]["ckpt_name"] = self.checkpoint
+        prompt["6"]["inputs"]["text"] = self.positive
+        prompt["7"]["inputs"]["text"] = self.negative
+        return prompt
+
+    def to_prompt_xl(self):
+        prompt = load_prompt("xl.json")
+        prompt["10"]["inputs"]["seed"] = self.seed
+        prompt["4"]["inputs"]["ckpt_name"] = self.checkpoint
+        prompt["12"]["inputs"]["ckpt_name"] = self.checkpoint
+        prompt["6"]["inputs"]["text"] = self.positive
+        prompt["7"]["inputs"]["text"] = self.negative
+        return prompt
+
+    def to_prompt_default(self):
         prompt = load_prompt("default.json")
         prompt["3"]["inputs"]["seed"] = self.seed
         prompt["3"]["inputs"]["denoise"] = self.denoise
         prompt["4"]["inputs"]["ckpt_name"] = self.checkpoint
         prompt["6"]["inputs"]["text"] = self.positive
         prompt["7"]["inputs"]["text"] = self.negative
-
         return prompt
 
     def to_hr_prompt(self, image):
         prompt = load_prompt("hr.json")
         filename = image["filename"]
-
         prompt["11"]["inputs"]["seed"] = self.seed
         prompt["11"]["inputs"]["denoise"] = self.denoise
         prompt["16"]["inputs"]["ckpt_name"] = self.checkpoint
@@ -81,8 +132,8 @@ class PreviewPromptData:
         prompt["6"]["inputs"]["text"] = self.positive
         prompt["7"]["inputs"]["text"] = self.negative
         prompt["18"]["inputs"]["image"] = f"{filename} [output]"
-
         return prompt
+        
 
 
 class CancelException(Exception):
@@ -130,7 +181,8 @@ class PreviewGeneratorDialog(wx.Dialog):
 
         utils.set_icons(self)
 
-        tags = self.get_tags(items[0], count=20)
+        tags = None
+        # tags = self.get_tags(items[0], count=20)
         if not tags:
             tags = ["1girl", "solo"]
         tags = ", ".join([t.strip() for t in tags])
@@ -472,8 +524,9 @@ class PreviewGeneratorDialog(wx.Dialog):
                 negKey = f", {negKey}"
             negative += negKey
 
+        tags = item["tags"]
         data = PreviewPromptData(
-            seed, denoise, checkpoint, positive, negative
+            seed, denoise, checkpoint, positive, negative, tags
         )
         return data
 

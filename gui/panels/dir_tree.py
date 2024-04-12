@@ -10,6 +10,7 @@ import wxasync
 
 from gui.utils import PUBSUB_HUB
 
+DUMMY_ROOT = "All"
 
 class DirTreePanel(wx.Panel):
     def __init__(self, *args, app=None, **kwargs):
@@ -32,7 +33,8 @@ class DirTreePanel(wx.Panel):
         )
 
         self.dir_tree = wx.TreeCtrl(
-            self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, wx.TR_HAS_BUTTONS | wx.TR_HIDE_ROOT
+            self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, wx.TR_HAS_BUTTONS
+            # self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, wx.TR_HAS_BUTTONS | wx.TR_HIDE_ROOT
         )
         self.dir_tree.SetImageList(self.icons)
         self.button_clear = wx.Button(self, label="Clear Filter")
@@ -71,12 +73,14 @@ class DirTreePanel(wx.Panel):
         except Exception as e:
             pass
         path = os.path.normpath(os.path.join(*list(reversed(segments))))
+        if path == DUMMY_ROOT:
+            path = None
         self.pub.publish(Key("tree_filter_changed"), path)
 
     async def SubSearchFinished(self, key, results):
         self.dir_tree.DeleteAllItems()
         self.button_clear.Disable()
-        self.dummy_root = self.dir_tree.AddRoot("Root")
+        self.dummy_root = self.dir_tree.AddRoot(DUMMY_ROOT)
         self.roots = []
 
         roots = set()
@@ -98,13 +102,13 @@ class DirTreePanel(wx.Panel):
 
         for result in results["data"]:
             filepath = result["filepath"]
-            path = pathlib.Path(filepath)
-
             root = next(
                 r
                 for r in self.roots
                 if self.dir_tree.GetItemText(r) == result["root_path"]
             )
+            relative_path = os.path.relpath(filepath, result["root_path"])
+            path = pathlib.Path(relative_path)
             for i, part in enumerate(path.parts):
                 exist = find(root, part)
                 if exist:
@@ -124,6 +128,12 @@ class DirTreePanel(wx.Panel):
                         self.dir_tree.SetItemImage(
                             root, self.icon_folder_open, wx.TreeItemIcon_Expanded
                         )
-
+        self.dir_tree.SetItemImage(
+            self.dummy_root, self.icon_folder_closed, wx.TreeItemIcon_Normal
+        )
+        self.dir_tree.SetItemImage(
+            self.dummy_root, self.icon_folder_open, wx.TreeItemIcon_Expanded
+        )
+        self.dir_tree.Expand(self.dummy_root)
         for root in self.roots:
             self.dir_tree.Expand(root)

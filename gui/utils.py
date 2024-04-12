@@ -189,11 +189,7 @@ def format_shorthash(m):
 
 COLUMNS = [
     # ColumnInfo("ID", lambda m: m["id"]),
-    ColumnInfo(
-        "Has Image",
-        lambda m: "★" if len(m["preview_images"] or []) > 0 else "",
-        width=20,
-    ),
+    ColumnInfo("Has Image",lambda m: "★" if len(m["preview_images"] or []) > 0 else "",width=20,),
     ColumnInfo("Filename", lambda m: os.path.basename(m["filepath"]), width=240),
     ColumnInfo("Module", lambda m: m["module_name"], width=60),
     ColumnInfo("Name", lambda m: m["display_name"], is_meta=True, width=100),
@@ -202,7 +198,7 @@ COLUMNS = [
     ColumnInfo("Dim.", lambda m: format_network_alpha(m["network_dim"]), width=60, is_visible=False),
     ColumnInfo("Alpha", lambda m: format_network_alpha(m["network_alpha"]), width=60, is_visible=False),
     ColumnInfo("Resolution", lambda m: m["resolution_width"]),
-    ColumnInfo("Unique Tags", lambda m: m["unique_tags"]),
+    ColumnInfo("Unique Tags", lambda m: m["unique_tags"], is_visible=False),
     ColumnInfo("Learning Rate", lambda m: m["learning_rate"], is_visible=False),
     ColumnInfo("UNet LR", lambda m: m["unet_lr"], is_visible=False),
     ColumnInfo("Text Encoder LR", lambda m: m["text_encoder_lr"], is_visible=False),
@@ -218,25 +214,10 @@ COLUMNS = [
     ColumnInfo("Keep Tokens", lambda m: m["keep_tokens"], is_visible=False),
     ColumnInfo("Noise Offset", lambda m: m["noise_offset"], is_visible=False),
     ColumnInfo("Shorthash", format_shorthash, width=100, is_visible=False),
-    ColumnInfo(
-        "Training Comment", lambda m: m["training_comment"], width=140, is_visible=False
-    ),
-    ColumnInfo(
-        "Train Date",
-        lambda m: m["training_started_at"],
-        width=170,
-        is_visible=False
-    ),
+    ColumnInfo("Training Comment", lambda m: m["training_comment"], width=140, is_visible=False),
+    ColumnInfo("Train Date",lambda m: m["training_started_at"],width=170,is_visible=False),
     ColumnInfo("Tags", lambda m: m["tags"], is_meta=True, width=140),
-    ColumnInfo(
-        "Keywords", lambda m: m["keywords"], is_meta=True, width=140, is_visible=False
-    ),
-    ColumnInfo(
-        "Source", lambda m: m["source"], is_meta=True, width=100, is_visible=False
-    ),
-    ColumnInfo(
-        "Filepath",
-        lambda m: m["filepath"],
-        width=600,
-    ),
+    ColumnInfo("Keywords", lambda m: m["keywords"], is_meta=True, width=140, is_visible=False),
+    ColumnInfo("Source", lambda m: m["source"], is_meta=True, width=100, is_visible=False),
+    ColumnInfo("Filepath",lambda m: m["filepath"],width=600,is_visible=True),
 ]

@@ -236,139 +236,85 @@ class DB:
                     # if "ss_lr_scheduler" not in metadata:
                     #     continue
                     lora_model = LoRAModel(
-                        id=id,
-                        root_path=path,
-                        filepath=filepath,
-                        filename=os.path.basename(f),
-                        last_embedded=datetime.min,
-                        display_name=display_name,
-                        author=author,
-                        source=source,
-                        keywords=keywords,
-                        negative_keywords=negative_keywords,
-                        version=version,
-                        description=description,
-                        rating=rating,
-                        tags=tags,
-                        model_hash=metadata.get("sshs_model_hash", None),
-                        legacy_hash=metadata.get("sshs_legacy_hash", None),
-                        session_id=to_int(metadata.get("ss_session_id", None)),
-                        training_started_at=to_datetime(
-                            metadata.get("ss_training_started_at", None)
-                        ),
-                        output_name=metadata.get("ss_output_name", None),
-                        learning_rate=to_float(metadata.get("ss_learning_rate", None)),
-                        text_encoder_lr=to_float(
-                            metadata.get("ss_text_encoder_lr", None)
-                        ),
-                        unet_lr=to_float(metadata.get("ss_unet_lr", None)),
-                        num_train_images=to_int(
-                            metadata.get("ss_num_train_images", None)
-                        ),
-                        num_reg_images=to_int(metadata.get("ss_num_reg_images", None)),
-                        num_batches_per_epoch=to_int(
-                            metadata.get("ss_num_batches_per_epoch", None)
-                        ),
-                        num_epochs=to_int(metadata.get("ss_num_epochs", None)),
-                        epoch=to_int(metadata.get("ss_epoch", None)),
-                        batch_size_per_device=to_int(
-                            metadata.get("ss_batch_size_per_device", None)
-                        ),
-                        total_batch_size=to_int(
-                            metadata.get("ss_total_batch_size", None)
-                        ),
-                        gradient_checkpointing=to_bool(
-                            metadata.get("ss_gradient_checkpointing", None)
-                        ),
-                        gradient_accumulation_steps=to_int(
-                            metadata.get("ss_gradient_accumulation_steps", None)
-                        ),
-                        max_train_steps=to_int(
-                            metadata.get("ss_max_train_steps", None)
-                        ),
-                        lr_warmup_steps=to_int(
-                            metadata.get("ss_lr_warmup_steps", None)
-                        ),
-                        lr_scheduler=metadata.get("ss_lr_scheduler", None),
-                        network_module=metadata.get("ss_network_module", None),
-                        module_name=format_module_name(metadata),
-                        network_dim=metadata.get("ss_network_dim", None),
-                        network_alpha=metadata.get("ss_network_alpha", None),
-                        network_args=to_json(metadata.get("ss_network_args", None)),
-                        mixed_precision=to_bool(
-                            metadata.get("ss_mixed_precision", None)
-                        ),
-                        full_fp16=to_bool(metadata.get("ss_full_fp16", None)),
-                        v2=to_bool(metadata.get("ss_v2", None)),
-                        resolution_width=format_resolution(
-                            metadata.get("ss_resolution", None), 0
-                        ),
-                        resolution_height=format_resolution(
-                            metadata.get("ss_resolution", None), 1
-                        ),
-                        clip_skip=to_int(metadata.get("ss_clip_skip", None)),
-                        max_token_length=to_int(
-                            metadata.get("ss_max_token_length", None)
-                        ),
-                        color_aug=to_bool(metadata.get("ss_color_aug", None)),
-                        flip_aug=to_bool(metadata.get("ss_flip_aug", None)),
-                        random_crop=to_bool(metadata.get("ss_random_crop", None)),
-                        shuffle_caption=to_bool(
-                            metadata.get("ss_shuffle_caption", None)
-                        ),
-                        cache_latents=to_bool(metadata.get("ss_cache_latents", None)),
-                        enable_bucket=to_bool(metadata.get("ss_enable_bucket", None)),
-                        min_bucket_reso=to_int(
-                            metadata.get("ss_min_bucket_reso", None)
-                        ),
-                        max_bucket_reso=to_int(
-                            metadata.get("ss_max_bucket_reso", None)
-                        ),
-                        seed=to_int(metadata.get("ss_seed", None)),
-                        keep_tokens=to_bool(metadata.get("ss_keep_tokens", None)),
-                        dataset_dirs=to_json(metadata.get("ss_dataset_dirs", None)),
-                        reg_dataset_dirs=to_json(
-                            metadata.get("ss_reg_dataset_dirs", None)
-                        ),
-                        tag_frequency=to_json(metadata.get("ss_tag_frequency", None)),
-                        unique_tags=to_unique_tags(
-                            metadata.get("ss_tag_frequency", None)
-                        ),
-                        sd_model_name=metadata.get("ss_sd_model_name", None),
-                        sd_model_hash=metadata.get("ss_sd_model_hash", None),
-                        new_sd_model_hash=metadata.get("ss_new_sd_model_hash", None),
-                        vae_name=metadata.get("ss_vae_name", None),
-                        vae_hash=metadata.get("ss_vae_hash", None),
-                        new_vae_hash=metadata.get("ss_new_vae_hash", None),
-                        training_comment=to_str(
-                            metadata.get("ss_training_comment", None)
-                        ),
-                        bucket_info=to_json(metadata.get("ss_bucket_info", None)),
-                        sd_scripts_commit_hash=metadata.get(
-                            "ss_sd_scripts_commit_hash", None
-                        ),
-                        noise_offset=to_float(metadata.get("ss_noise_offset", None)),
-                        optimizer=metadata.get("ss_optimizer", None),
-                        max_grad_norm=to_float(metadata.get("ss_max_grad_norm", None)),
-                        caption_dropout_rate=to_float(
-                            metadata.get("ss_caption_dropout_rate", None)
-                        ),
-                        caption_dropout_every_n_epochs=to_int(
-                            metadata.get("ss_caption_dropout_every_n_epochs", None)
-                        ),
-                        caption_tag_dropout_rate=to_float(
-                            metadata.get("ss_caption_tag_dropout_rate", None)
-                        ),
-                        face_crop_aug_range=metadata.get(
-                            "ss_face_crop_aug_range", None
-                        ),
-                        prior_loss_weight=to_float(
-                            metadata.get("ss_prior_loss_weight", None)
-                        ),
-                        min_snr_gamma=to_float(metadata.get("ss_min_snr_gamma", None)),
-                        scale_weight_norms=to_float(
-                            metadata.get("ss_scale_weight_norms", None)
-                        ),
+                        id = id,
+                        root_path = path,
+                        filepath = filepath,
+                        filename = os.path.basename(f),
+                        last_embedded = datetime.min,
+                        display_name = display_name,
+                        author = author,
+                        source = source,
+                        keywords = keywords,
+                        negative_keywords = negative_keywords,
+                        version = version,
+                        description = description,
+                        rating = rating,
+                        tags = tags,
+                        model_hash = metadata.get("sshs_model_hash", None),
+                        legacy_hash = metadata.get("sshs_legacy_hash", None),
+                        session_id = to_int(metadata.get("ss_session_id", None)),
+                        training_started_at = to_datetime(metadata.get("ss_training_started_at", None)),
+                        output_name = metadata.get("ss_output_name", None),
+                        learning_rate = to_float(metadata.get("ss_learning_rate", None)),
+                        text_encoder_lr = to_float(metadata.get("ss_text_encoder_lr", None)),
+                        unet_lr = to_float(metadata.get("ss_unet_lr", None)),
+                        num_train_images = to_int(metadata.get("ss_num_train_images", None)),
+                        num_reg_images = to_int(metadata.get("ss_num_reg_images", None)),
+                        num_batches_per_epoch = to_int(metadata.get("ss_num_batches_per_epoch", None)),
+                        num_epochs = to_int(metadata.get("ss_num_epochs", None)),
+                        epoch = to_int(metadata.get("ss_epoch", None)),
+                        batch_size_per_device = to_int(metadata.get("ss_batch_size_per_device", None)),
+                        total_batch_size = to_int(metadata.get("ss_total_batch_size", None)),
+                        gradient_checkpointing = to_bool(metadata.get("ss_gradient_checkpointing", None)),
+                        gradient_accumulation_steps = to_int(metadata.get("ss_gradient_accumulation_steps", None)),
+                        max_train_steps = to_int(metadata.get("ss_max_train_steps", None)),
+                        lr_warmup_steps = to_int(metadata.get("ss_lr_warmup_steps", None)),
+                        lr_scheduler = metadata.get("ss_lr_scheduler", None),
+                        network_module = metadata.get("ss_network_module", None),
+                        module_name = format_module_name(metadata),
+                        network_dim = metadata.get("ss_network_dim", None),
+                        network_alpha = metadata.get("ss_network_alpha", None),
+                        network_args = to_json(metadata.get("ss_network_args", None)),
+                        mixed_precision = to_bool(metadata.get("ss_mixed_precision", None)),
+                        full_fp16 = to_bool(metadata.get("ss_full_fp16", None)),
+                        v2 = to_bool(metadata.get("ss_v2", None)),
+                        resolution_width = format_resolution(metadata.get("ss_resolution", None), 0),
+                        resolution_height = format_resolution(metadata.get("ss_resolution", None), 1),
+                        clip_skip = to_int(metadata.get("ss_clip_skip", None)),
+                        max_token_length = to_int(metadata.get("ss_max_token_length", None)),
+                        color_aug = to_bool(metadata.get("ss_color_aug", None)),
+                        flip_aug = to_bool(metadata.get("ss_flip_aug", None)),
+                        random_crop = to_bool(metadata.get("ss_random_crop", None)),
+                        shuffle_caption = to_bool(metadata.get("ss_shuffle_caption", None)),
+                        cache_latents = to_bool(metadata.get("ss_cache_latents", None)),
+                        enable_bucket = to_bool(metadata.get("ss_enable_bucket", None)),
+                        min_bucket_reso = to_int(metadata.get("ss_min_bucket_reso", None)),
+                        max_bucket_reso = to_int(metadata.get("ss_max_bucket_reso", None)),
+                        seed = to_int(metadata.get("ss_seed", None)),
+                        keep_tokens = to_bool(metadata.get("ss_keep_tokens", None)),
+                        dataset_dirs = to_json(metadata.get("ss_dataset_dirs", None)),
+                        reg_dataset_dirs = to_json(metadata.get("ss_reg_dataset_dirs", None)),
+                        tag_frequency = to_json(metadata.get("ss_tag_frequency", None)),
+                        unique_tags = to_unique_tags(metadata.get("ss_tag_frequency", None)),
+                        sd_model_name = metadata.get("ss_sd_model_name", None),
+                        sd_model_hash = metadata.get("ss_sd_model_hash", None),
+                        new_sd_model_hash = metadata.get("ss_new_sd_model_hash", None),
+                        vae_name = metadata.get("ss_vae_name", None),
+                        vae_hash = metadata.get("ss_vae_hash", None),
+                        new_vae_hash = metadata.get("ss_new_vae_hash", None),
+                        training_comment = to_str(metadata.get("ss_training_comment", None)),
+                        bucket_info = to_json(metadata.get("ss_bucket_info", None)),
+                        sd_scripts_commit_hash = metadata.get("ss_sd_scripts_commit_hash", None),
+                        noise_offset = to_float(metadata.get("ss_noise_offset", None)),
+                        optimizer = metadata.get("ss_optimizer", None),
+                        max_grad_norm = to_float(metadata.get("ss_max_grad_norm", None)),
+                        caption_dropout_rate = to_float(metadata.get("ss_caption_dropout_rate", None)),
+                        caption_dropout_every_n_epochs = to_int(metadata.get("ss_caption_dropout_every_n_epochs", None)),
+                        caption_tag_dropout_rate = to_float(metadata.get("ss_caption_tag_dropout_rate", None)),
+                        face_crop_aug_range = metadata.get("ss_face_crop_aug_range", None),
+                        prior_loss_weight = to_float(metadata.get("ss_prior_loss_weight", None)),
+                        min_snr_gamma = to_float(metadata.get("ss_min_snr_gamma", None)),
+                        scale_weight_norms = to_float(metadata.get("ss_scale_weight_norms", None)),
                     )
                     session.add(lora_model)
                     await session.flush()
@@ -376,11 +322,7 @@ class DB:
                     # TODO dedup
                     image_paths = find_preview_images(os.path.splitext(f)[0])
                     for image_path in image_paths:
-                        preview_image = PreviewImage(
-                            filepath=image_path,
-                            is_autogenerated=False,
-                            model_id=lora_model.id,
-                        )
+                        preview_image = PreviewImage(filepath=image_path, is_autogenerated=False, model_id=lora_model.id)
                         session.add(preview_image)
 
                 await session.commit()

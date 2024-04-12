@@ -173,6 +173,7 @@ class MetadataList(ultimatelistctrl.UltimateListCtrl):
             target=target,
             event=evt,
             app=self.app,
+            object=self,
             items=[PopupMenuItem("Copy Value", self.copy_value)],
         )
         pos = evt.GetPoint()

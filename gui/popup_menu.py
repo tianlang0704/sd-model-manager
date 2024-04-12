@@ -34,7 +34,7 @@ class PopupMenuItem:
 
 
 class PopupMenu(wx.Menu):
-    def __init__(self, *args, target=None, event=None, items=None, app=None, **kwargs):
+    def __init__(self, *args, target=None, event=None, items=None, app=None, object=None, **kwargs):
         wx.Menu.__init__(self, *args, **kwargs)
         self.target = target
         self.event = event
@@ -62,7 +62,9 @@ class PopupMenu(wx.Menu):
                         menu_item, _menu = self.FindItem(id)
                         menu_item.SetBitmap(item.icon)
                 self.Enable(id, item.enabled)
-            wxasync.AsyncBind(wx.EVT_MENU, self.OnMenuSelection, self.app.frame, id=id)
+            if object is None:
+                object = self.app.frame
+            wxasync.AsyncBind(wx.EVT_MENU, self.OnMenuSelection, object, id=id)
 
     async def OnMenuSelection(self, event):
         item = self.items[event.GetId()]
@@ -77,11 +79,9 @@ def open_folder(target, event):
     utils.open_on_file(path)
 
 
-def copy_item_value(target, event, colmap, app):
-    col = colmap[event.GetColumn()]
-    column = utils.COLUMNS[col]
+def copy_item_value(target, event, app):
+    column = utils.COLUMNS[event.GetColumn()]
     value = column.callback(target)
-
     copy_to_clipboard(value, app)
 
 
@@ -103,7 +103,7 @@ def copy_to_clipboard(value, app=None):
         if app:
             app.frame.statusbar.SetStatusText(f"Copied: {utils.trim_string(value)}")
 
-def create_popup_menu_for_item(target, evt, app, colmap=None):
+def create_popup_menu_for_item(target, evt, app):
     tag_freq = target.get("tag_frequency")
 
     image_prompt = None
@@ -130,9 +130,7 @@ def create_popup_menu_for_item(target, evt, app, colmap=None):
 
     items = [
         PopupMenuItem("Open Folder", open_folder, icon=icon_folder_go),
-        PopupMenuItem("Copy Value", lambda t, e: copy_item_value(t, e, colmap, app))
-        if colmap is not None
-        else None,
+        PopupMenuItem("Copy Value", lambda t, e: copy_item_value(t, e, app)),
         PopupMenuSeparator(),
         PopupMenuItem(
             "Show Metadata...",

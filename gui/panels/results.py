@@ -42,9 +42,7 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
         self.app = app
 
         self.results = []
-        self.text = {}
         self.values = {}
-        self.colmap = {}
         self.filtered = []
         self.filter = None
         self.clicked = False
@@ -55,9 +53,7 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
         self.Bind(wx.EVT_LIST_CACHE_HINT, self.OnListItemSelected)
         wxasync.AsyncBind(wx.EVT_LIST_ITEM_ACTIVATED, self.OnListItemActivated, self)
         self.Bind(wx.EVT_LIST_DELETE_ALL_ITEMS, self.OnListItemSelected)
-        wxasync.AsyncBind(
-            wx.EVT_LIST_ITEM_RIGHT_CLICK, self.OnListItemRightClicked, self
-        )
+        wxasync.AsyncBind(wx.EVT_LIST_ITEM_RIGHT_CLICK, self.OnListItemRightClicked, self)
         self.Bind(wx.EVT_LIST_COL_RIGHT_CLICK, self.OnColumnRightClicked)
         self.Bind(wx.EVT_KEY_DOWN, self.OnKeyDown)
         self.Bind(wx.EVT_KEY_UP, self.OnKeyUp)
@@ -66,15 +62,12 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
 
         self.pub = aiopubsub.Publisher(PUBSUB_HUB, Key("events"))
         self.sub = aiopubsub.Subscriber(PUBSUB_HUB, Key("events"))
-        self.sub.add_async_listener(
-            Key("events", "tree_filter_changed"), self.SubTreeFilterChanged
-        )
+        self.sub.add_async_listener(Key("events", "tree_filter_changed"), self.SubTreeFilterChanged)
 
         for col, column in enumerate(COLUMNS):
             self.InsertColumn(col, column.name)
             self.SetColumnShown(col, column.is_visible)
-
-        self.refresh_columns()
+        self.resize_columns()
 
     async def SubTreeFilterChanged(self, key, path):
         self.pub.publish(Key("item_selected"), [])
@@ -96,7 +89,6 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
     def set_results(self, results):
         self.results = results
         self.filter = None
-        self.text = {}
         self.values = {}
 
         self.refresh_filter()
@@ -113,76 +105,39 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
                     self.filtered.append(d)
         self.refresh_text()
 
-    def refresh_columns(self):
-        self.colmap = {}
-        col = 0
-        for i, column in enumerate(COLUMNS):
-            if not column.is_visible:
-                continue
-            self.colmap[col] = i
-
-            if column.width is not None:
-                width = self.Parent.FromDIP(column.width)
-            else:
-                width = wx.LIST_AUTOSIZE_USEHEADER
-            self.SetColumnWidth(col, width)
-
-            c = self.GetColumn(col)
-            c.SetText(column.name)
-            self.SetColumn(col, c)
-            col += 1
-
     def resize_columns(self):
-        for col, realcol in self.colmap.items():
-            column = COLUMNS[realcol]
+        for idx, column in enumerate(COLUMNS):
             if column.width is not None:
                 width = self.Parent.FromDIP(column.width)
             else:
                 width = wx.LIST_AUTOSIZE_USEHEADER
-            self.SetColumnWidth(col, width)
-
+            self.SetColumnWidth(idx, width)
         self.Arrange(ultimatelistctrl.ULC_ALIGN_DEFAULT)
 
     def refresh_text(self):
         self.app.frame.statusbar.SetStatusText("Loading results...")
 
-        self.DeleteAllItems()
-        self.Refresh()
-
-        count = len(self.filtered)
-        self.SetItemCount(count)
-
-        self.text = {}
         self.values = {}
         for i, data in enumerate(self.filtered):
-            data["_index"] = i
-            self.refresh_one_text(data)
+            self.refresh_one_value(data, i)
+
+        self.DeleteAllItems()
+        count = len(self.filtered)
+        self.SetItemCount(count)
+        self.Refresh()
 
         self.app.frame.statusbar.SetStatusText(f"Done. ({count} records)")
 
-        self.resize_columns()
-
-    def refresh_one_text(self, data):
-        i = data["_index"]
+    def refresh_one_value(self, data, index = None):
+        if index is None:
+            index = next((i for i, element in enumerate(self.filtered) if element["id"] == data["id"]), None)
+        if index is None:
+            return
         for col, column in enumerate(COLUMNS):
             value = column.callback(data)
-            if value is None:
-                text = ""
-            else:
-                text = str(value)
-            if col not in self.text:
-                self.text[col] = {}
+            if col not in self.values:
                 self.values[col] = {}
-            self.text[col][i] = text
-            self.values[col][i] = value
-
-        filepath = data["filepath"]
-        data["file_exists"] = os.path.isfile(filepath)
-        if data["file_exists"]:
-            colour = "white"
-        else:
-            colour = "red"
-        self.SetItemBackgroundColour(i, colour)
+            self.values[col][index] = value
 
     def get_selection(self):
         item = self.GetFirstSelected()
@@ -211,26 +166,20 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
         return None
 
     def OnGetItemText(self, item, col):
-        col = self.colmap.get(col)
-        if col is None:
-            return ""
-
         entry = self.values[col][item]
         if entry is None:
             column = COLUMNS[col]
             if not column.is_meta:
                 return "(None)"
 
-        return self.text[col][item]
+        return str(entry)
 
     def OnGetItemTextColour(self, item, col):
-        col = self.colmap.get(col)
-        if col is None:
-            return None
-
         entry = self.values[col][item]
         if entry is None:
             return "gray"
+        if COLUMNS[col].name == "Filepath" and not os.path.isfile(entry):
+            return "red"
         return None
 
     def OnGetItemToolTip(self, item, col):
@@ -249,7 +198,6 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
     def OnListItemSelected(self, evt):
         if not self.clicked:
             return
-
         self.clicked = False
         selection = self.get_selection()
         self.pub.publish(Key("item_selected"), selection)
@@ -268,7 +216,7 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
 
         target = self.filtered[evt.GetIndex()]
 
-        menu = create_popup_menu_for_item(target, evt, self.app, colmap=self.colmap)
+        menu = create_popup_menu_for_item(target, evt, self.app)
 
         pos = evt.GetPoint()
         self.PopupMenu(menu, pos)
@@ -277,18 +225,14 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
     def OnColumnRightClicked(self, evt):
         items = []
         for i, col in enumerate(COLUMNS):
-
-            def check(target, event, col=col):
+            def check(target, event, col=col, i=i):
                 col.is_visible = not col.is_visible
                 self.SetColumnShown(i, col.is_visible)
-                self.refresh_columns()
-
             items.append(PopupMenuItem(col.name, check, checked=col.is_visible))
         menu = PopupMenu(target=self, items=items, app=self.app)
         pos = evt.GetPoint()
         self.PopupMenu(menu, pos)
         menu.Destroy()
-        pass
 
 
 class GalleryThumbnailHandler(PILImageHandler):
@@ -497,7 +441,7 @@ class ResultsNotebook(wx.Panel):
 
     async def refresh_one_item(self, item):
         try_load_image.cache_clear()
-        self.results_panel.list.refresh_one_text(item)
+        self.results_panel.list.refresh_one_value(item)
         self.results_gallery.refresh_one_thumbnail(item)
         self.Refresh()
         selection = self.get_selection()

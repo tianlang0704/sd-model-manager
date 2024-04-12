@@ -256,7 +256,7 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
 
     async def OnListItemActivated(self, evt):
         # await self.app.frame.OnShowMetadata(None)
-        await self.app.frame.OnGeneratePreviews(None)
+        await self.app.frame.OnGeneratePreviews(None, op="replace")
 
     async def OnListItemRightClicked(self, evt):
         idx = evt.GetIndex()

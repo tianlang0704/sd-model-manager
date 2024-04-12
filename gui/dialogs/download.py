@@ -841,27 +841,25 @@ def any_have_previews(items):
 
     return count
 
-async def run(app, items):
+async def run(app, items, op = None):
     if not items:
         return
 
-    count = any_have_previews(items)
-    op = "replace"
-
-    if count > 0:
-        dlg = wx.MessageDialog(
-            app.frame,
-            f"{count} models already have preview files. Do you want to replace them or add them to the preview images list?",
-            "Existing Previews",
-            wx.YES_NO | wx.CANCEL | wx.ICON_QUESTION,
-        )
-        dlg.SetYesNoLabels("Replace", "Append")
-        result = await wxasync.AsyncShowDialogModal(dlg)
-        if result == wx.ID_CANCEL:
-            return
-        op = "replace" if result == wx.ID_YES else "append"
+    if op is None:
+        count = any_have_previews(items)
+        if count > 0:
+            dlg = wx.MessageDialog(
+                app.frame,
+                f"{count} models already have preview files. Do you want to replace them or add them to the preview images list?",
+                "Existing Previews",
+                wx.YES_NO | wx.CANCEL | wx.ICON_QUESTION,
+            )
+            dlg.SetYesNoLabels("Replace", "Append")
+            result = await wxasync.AsyncShowDialogModal(dlg)
+            if result == wx.ID_CANCEL:
+                return
+            op = "replace" if result == wx.ID_YES else "append"
 
     dialog = PreviewGeneratorDialog(app.frame, app, items, op)
     dialog.Center()
     result = await AsyncShowDialogModal(dialog)
-    # dialog.Destroy()

@@ -8,7 +8,6 @@ import wxasync
 
 from sd_model_manager.prompt import infotext
 from gui import utils
-from gui.dialogs.generate_previews import GeneratePreviewsDialog
 
 
 class PopupMenuSeparator:
@@ -104,14 +103,6 @@ def copy_to_clipboard(value, app=None):
         if app:
             app.frame.statusbar.SetStatusText(f"Copied: {utils.trim_string(value)}")
 
-
-async def generate_previews(app):
-    await app.frame.OnGeneratePreviews(None)
-
-async def show_metadata(app):
-    await app.frame.OnShowMetadata(None)
-
-
 def create_popup_menu_for_item(target, evt, app, colmap=None):
     tag_freq = target.get("tag_frequency")
 
@@ -145,13 +136,20 @@ def create_popup_menu_for_item(target, evt, app, colmap=None):
         PopupMenuSeparator(),
         PopupMenuItem(
             "Show Metadata...",
-            lambda t, e: show_metadata(app),
+            lambda t, e: app.frame.OnShowMetadata(None),
             is_async=True,
             icon=icon_folder_go,
         ),
+        PopupMenuSeparator(),
         PopupMenuItem(
-            "Generate Previews...",
-            lambda t, e: generate_previews(app),
+            "Generate Previews(Replace)...",
+            lambda t, e: app.frame.OnGeneratePreviews(None, op="replace"),
+            is_async=True,
+            icon=icon_picture_add,
+        ),
+        PopupMenuItem(
+            "Generate Previews(Append)...",
+            lambda t, e: app.frame.OnGeneratePreviews(None, op="append"),
             is_async=True,
             icon=icon_picture_add,
         ),

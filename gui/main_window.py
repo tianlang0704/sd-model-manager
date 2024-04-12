@@ -203,19 +203,12 @@ class MainWindow(wx.Frame):
         path = item["filepath"]
         utils.open_on_file(path)
 
-    async def OnGeneratePreviews(self, evt):
+    async def OnGeneratePreviews(self, evt, op = None):
         selection = self.results_panel.get_selection()
         if len(selection) == 0:
             return
-        await gui.dialogs.download.run(self.app, selection)
-        # dialog = GeneratePreviewsDialog(self, selection, app=self.app)
-        # dialog.CenterOnParent(wx.BOTH)
-        # result = dialog.ShowModal()
-        # if result == wx.ID_OK:
-        #     print("OK")
-        #     print(dialog.result)
-        # dialog.Destroy()
-        # self.Refresh()
+        await gui.dialogs.download.run(self.app, selection, op)
+
     async def OnShowMetadata(self, evt):
         selection = self.results_panel.get_selection()
         if len(selection) == 0:
@@ -224,6 +217,7 @@ class MainWindow(wx.Frame):
         dialog = MetadataDialog(self, target, app=self.app)
         dialog.CenterOnParent(wx.BOTH)
         await wxasync.AsyncShowDialogModal(dialog)
+
     async def SubItemSelected(self, key, items):
         selected = len(items) > 0
         self.toolbar.EnableTool(wx.ID_SAVE, False)
@@ -233,9 +227,6 @@ class MainWindow(wx.Frame):
 
     async def search(self, query):
         self.statusbar.SetStatusText("Searching...")
-
         await self.results_panel.search(query)
-
         results = self.results_panel.results
-
         self.pub.publish(Key("search_finished"), results)

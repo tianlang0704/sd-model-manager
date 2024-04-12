@@ -2,7 +2,7 @@ import wx
 import wx.aui
 import wx.lib.newevent
 from wx.lib.agw import ultimatelistctrl
-
+import wxasync
 
 from gui import ids, utils
 from gui.popup_menu import PopupMenu, PopupMenuItem
@@ -219,3 +219,10 @@ class MetadataDialog(wx.Dialog):
         self.sizer.Add(self.sizerB, border=2, flag=wx.EXPAND | wx.ALL)
 
         self.SetSizer(self.sizer)
+
+        self.accel_tbl = wx.AcceleratorTable(
+            [
+                (wx.ACCEL_NORMAL, wx.WXK_ESCAPE, wx.ID_OK),
+            ]
+        )
+        self.SetAcceleratorTable(self.accel_tbl)

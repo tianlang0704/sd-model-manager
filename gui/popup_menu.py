@@ -108,6 +108,9 @@ def copy_to_clipboard(value, app=None):
 async def generate_previews(app):
     await app.frame.OnGeneratePreviews(None)
 
+async def show_metadata(app):
+    await app.frame.OnShowMetadata(None)
+
 
 def create_popup_menu_for_item(target, evt, app, colmap=None):
     tag_freq = target.get("tag_frequency")
@@ -140,6 +143,12 @@ def create_popup_menu_for_item(target, evt, app, colmap=None):
         if colmap is not None
         else None,
         PopupMenuSeparator(),
+        PopupMenuItem(
+            "Show Metadata...",
+            lambda t, e: show_metadata(app),
+            is_async=True,
+            icon=icon_folder_go,
+        ),
         PopupMenuItem(
             "Generate Previews...",
             lambda t, e: generate_previews(app),

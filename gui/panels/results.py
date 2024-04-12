@@ -255,11 +255,8 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
         self.pub.publish(Key("item_selected"), selection)
 
     async def OnListItemActivated(self, evt):
-        target = self.filtered[evt.GetIndex()]
-        dialog = MetadataDialog(self, target, app=self.app)
-        dialog.CenterOnParent(wx.BOTH)
-        await wxasync.AsyncShowDialogModal(dialog)
-        # dialog.Destroy()
+        # await self.app.frame.OnShowMetadata(None)
+        await self.app.frame.OnGeneratePreviews(None)
 
     async def OnListItemRightClicked(self, evt):
         idx = evt.GetIndex()

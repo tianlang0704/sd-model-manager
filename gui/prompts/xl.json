@@ -1,7 +1,7 @@
 {
   "4": {
     "inputs": {
-      "ckpt_name": "aamXLAnimeMix_v10.safetensors"
+      "ckpt_name": "sd_xl_base_1.0_vaefix.safetensors"
     },
     "class_type": "CheckpointLoaderSimple",
     "_meta": {
@@ -21,7 +21,7 @@
   },
   "6": {
     "inputs": {
-      "text": "masterpiece, 1girl, solo",
+      "text": "evening sunset scenery blue sky nature, glass bottle with a galaxy in it",
       "clip": [
         "4",
         1
@@ -34,7 +34,7 @@
   },
   "7": {
     "inputs": {
-      "text": "(worst quality, low quality:1.2)",
+      "text": "text, watermark",
       "clip": [
         "4",
         1
@@ -48,13 +48,19 @@
   "10": {
     "inputs": {
       "add_noise": "enable",
-      "noise_seed": 306070267192588,
-      "steps": 25,
+      "noise_seed": 613748442451969,
+      "steps": [
+        "53",
+        0
+      ],
       "cfg": 8,
       "sampler_name": "euler",
       "scheduler": "normal",
       "start_at_step": 0,
-      "end_at_step": 20,
+      "end_at_step": [
+        "54",
+        0
+      ],
       "return_with_leftover_noise": "enable",
       "model": [
         "4",
@@ -82,11 +88,17 @@
     "inputs": {
       "add_noise": "disable",
       "noise_seed": 0,
-      "steps": 25,
+      "steps": [
+        "53",
+        0
+      ],
       "cfg": 8,
       "sampler_name": "euler",
       "scheduler": "normal",
-      "start_at_step": 20,
+      "start_at_step": [
+        "54",
+        0
+      ],
       "end_at_step": 10000,
       "return_with_leftover_noise": "disable",
       "model": [
@@ -113,7 +125,7 @@
   },
   "12": {
     "inputs": {
-      "ckpt_name": "aamXLAnimeMix_v10.safetensors"
+      "ckpt_name": "animagineXLV3_v30.safetensors"
     },
     "class_type": "CheckpointLoaderSimple",
     "_meta": {
@@ -122,7 +134,7 @@
   },
   "15": {
     "inputs": {
-      "text": "masterpiece, 1girl, solo",
+      "text": "evening sunset scenery blue sky nature, glass bottle with a galaxy in it",
       "clip": [
         "12",
         1
@@ -135,7 +147,7 @@
   },
   "16": {
     "inputs": {
-      "text": "(worst quality, low quality:1.2)",
+      "text": "text, watermark",
       "clip": [
         "12",
         1
@@ -173,6 +185,24 @@
     "class_type": "SaveImage",
     "_meta": {
       "title": "Save Image"
+    }
+  },
+  "53": {
+    "inputs": {
+      "value": 25
+    },
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "INT Constant"
+    }
+  },
+  "54": {
+    "inputs": {
+      "value": 20
+    },
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "INT Constant"
     }
   }
 }

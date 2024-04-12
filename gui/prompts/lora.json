@@ -53,8 +53,8 @@
     "inputs": {
       "text": "masterpiece best quality girl school uniform",
       "clip": [
-        "230",
-        1
+        "231",
+        0
       ]
     },
     "class_type": "CLIPTextEncode",
@@ -66,8 +66,8 @@
     "inputs": {
       "text": "embedding:EasyNegative",
       "clip": [
-        "230",
-        1
+        "231",
+        0
       ]
     },
     "class_type": "CLIPTextEncode",
@@ -121,6 +121,19 @@
     "class_type": "LoraLoader",
     "_meta": {
       "title": "Load LoRA"
+    }
+  },
+  "231": {
+    "inputs": {
+      "stop_at_clip_layer": -1,
+      "clip": [
+        "230",
+        1
+      ]
+    },
+    "class_type": "CLIPSetLastLayer",
+    "_meta": {
+      "title": "CLIP Set Last Layer"
     }
   }
 }

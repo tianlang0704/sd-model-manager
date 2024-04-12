@@ -7,6 +7,7 @@ import wx.aui
 import wx.lib.newevent
 import wxasync
 
+from gui.dialogs.metadata import MetadataDialog
 from gui.utils import PUBSUB_HUB
 from gui.panels.dir_tree import DirTreePanel
 from gui.panels.preview_image import PreviewImagePanel
@@ -215,7 +216,14 @@ class MainWindow(wx.Frame):
         #     print(dialog.result)
         # dialog.Destroy()
         # self.Refresh()
-
+    async def OnShowMetadata(self, evt):
+        selection = self.results_panel.get_selection()
+        if len(selection) == 0:
+            return
+        target = selection[0]
+        dialog = MetadataDialog(self, target, app=self.app)
+        dialog.CenterOnParent(wx.BOTH)
+        await wxasync.AsyncShowDialogModal(dialog)
     async def SubItemSelected(self, key, items):
         selected = len(items) > 0
         self.toolbar.EnableTool(wx.ID_SAVE, False)

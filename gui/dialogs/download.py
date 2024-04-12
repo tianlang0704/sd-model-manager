@@ -1,5 +1,7 @@
+import copy
 import io
 import os
+import re
 import wx
 import time
 import shutil
@@ -32,9 +34,17 @@ CHECKPOINTS = [
 ]
 VAES = ["animefull-latest", "kl-f8-anime", "vae-ft-mse"]
 
-DEFAULT_POSITIVE_PROMPT = "masterpiece"
-DEFAULT_NEGATIVE_PROMPT = "(worst quality, low quality:1.2)"
 OVERRIDE_KEYWORD = "override:"
+DEFAULT_POSITIVE = "masterpiece, 1girl, solo"
+DEFAULT_NEGATIVE = "(worst quality, low quality:1.2)"
+DEFAULT_SEED = -1
+DEFAULT_DENOISE = 1.0
+DEFAULT_CFG = 8
+DEFAULT_STEPS = 20
+DEFAULT_CLIP = -1
+DEFAULT_SAMPLER = "euler_ancestral"
+DEFAULT_SCHEDULER = "karras"
+DEFAULT_LORA_BASE = "AOM3.safetensors"
 
 def load_prompt(name):
     with open(
@@ -47,9 +57,14 @@ def load_prompt(name):
 class GeneratePreviewsOptions:
     prompt_before: str
     prompt_after: str
-    n_tags: int
     seed: int
     denoise: float
+    cfg: int
+    steps: int
+    clip: int
+    sampler: str
+    scheduler: str
+    lora_base: str
 
 
 @dataclass
@@ -59,6 +74,12 @@ class PreviewPromptData:
     checkpoint: str
     positive: str
     negative: str
+    cfg: int
+    steps: int
+    clip: int
+    sampler: str
+    scheduler: str
+    lora_base: str
     tags: str
 
     def to_prompt(self):
@@ -81,15 +102,26 @@ class PreviewPromptData:
         prompt = load_prompt("lora.json")
         prompt["3"]["inputs"]["seed"] = self.seed
         prompt["3"]["inputs"]["denoise"] = self.denoise
+        prompt["3"]["inputs"]["cfg"] = self.cfg
+        prompt["3"]["inputs"]["steps"] = self.steps
+        prompt["3"]["inputs"]["sampler_name"] = self.sampler
+        prompt["3"]["inputs"]["scheduler"] = self.scheduler
         prompt["230"]["inputs"]["lora_name"] = self.checkpoint
         prompt["6"]["inputs"]["text"] = self.positive
         prompt["7"]["inputs"]["text"] = self.negative
+        prompt["231"]["inputs"]["stop_at_clip_layer"] = self.clip
+        prompt["4"]["inputs"]["ckpt_name"] = self.lora_base
         return prompt
     
     def to_prompt_merge_turbo(self):
         prompt = load_prompt("merge_turbo.json")
         prompt["5"]["inputs"]["seed"] = self.seed
         prompt["5"]["inputs"]["denoise"] = self.denoise
+        prompt["5"]["inputs"]["cfg"] = self.cfg
+        prompt["5"]["inputs"]["steps"] = self.steps
+        prompt["5"]["inputs"]["sampler_name"] = self.sampler
+        prompt["5"]["inputs"]["scheduler"] = self.scheduler
+        prompt["2"]["inputs"]["stop_at_clip_layer"] = self.clip
         prompt["1"]["inputs"]["ckpt_name"] = self.checkpoint
         prompt["3"]["inputs"]["text"] = self.positive
         prompt["4"]["inputs"]["text"] = self.negative
@@ -97,29 +129,44 @@ class PreviewPromptData:
 
     def to_prompt_turbo(self):
         prompt = load_prompt("turbo.json")
+        prompt["13"]["inputs"]["cfg"] = self.cfg
         prompt["13"]["inputs"]["noise_seed"] = self.seed
-        prompt["31"]["inputs"]["value"] = self.denoise
         prompt["20"]["inputs"]["ckpt_name"] = self.checkpoint
         prompt["6"]["inputs"]["text"] = self.positive
         prompt["7"]["inputs"]["text"] = self.negative
+        prompt["22"]["inputs"]["steps"] = self.steps
+        prompt["22"]["inputs"]["denoise"] = self.denoise
         return prompt
 
     def to_prompt_xl(self):
         prompt = load_prompt("xl.json")
-        prompt["10"]["inputs"]["seed"] = self.seed
+        prompt["10"]["inputs"]["noise_seed"] = self.seed
+        prompt["10"]["inputs"]["cfg"] = self.cfg
+        prompt["11"]["inputs"]["cfg"] = self.cfg
+        prompt["10"]["inputs"]["sampler_name"] = self.sampler
+        prompt["11"]["inputs"]["sampler_name"] = self.sampler
+        prompt["10"]["inputs"]["scheduler"] = self.scheduler
+        prompt["11"]["inputs"]["scheduler"] = self.scheduler
         prompt["4"]["inputs"]["ckpt_name"] = self.checkpoint
         prompt["12"]["inputs"]["ckpt_name"] = self.checkpoint
         prompt["6"]["inputs"]["text"] = self.positive
         prompt["7"]["inputs"]["text"] = self.negative
+        prompt["53"]["inputs"]["value"] = self.steps
+        prompt["54"]["inputs"]["value"] = int(self.steps * self.denoise)
         return prompt
 
     def to_prompt_default(self):
         prompt = load_prompt("default.json")
         prompt["3"]["inputs"]["seed"] = self.seed
         prompt["3"]["inputs"]["denoise"] = self.denoise
+        prompt["3"]["inputs"]["cfg"] = self.cfg
+        prompt["3"]["inputs"]["steps"] = self.steps
+        prompt["3"]["inputs"]["sampler_name"] = self.sampler
+        prompt["3"]["inputs"]["scheduler"] = self.scheduler
         prompt["4"]["inputs"]["ckpt_name"] = self.checkpoint
         prompt["6"]["inputs"]["text"] = self.positive
         prompt["7"]["inputs"]["text"] = self.negative
+        prompt["31"]["inputs"]["stop_at_clip_layer"] = self.clip
         return prompt
 
     def to_hr_prompt(self, image):
@@ -159,6 +206,8 @@ def find_preview_images(basepath):
 
     return images
 
+KEY_POSITIVE = "processed_positive"
+KEY_NEGATIVE = "processed_negative"
 
 class PreviewGeneratorDialog(wx.Dialog):
     def __init__(self, parent, app, items, duplicate_op):
@@ -170,6 +219,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.duplicate_op = duplicate_op  # "replace", "append"
 
         self.items = items
+        self.preview_options = self.item_to_preview_options(items)
         self.result = None
         self.last_data = None
         self.last_output = None
@@ -180,69 +230,23 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.node_text = ""
 
         utils.set_icons(self)
-
-        tags = None
-        # tags = self.get_tags(items[0], count=20)
-        if not tags:
-            tags = ["1girl", "solo"]
-        tags = ", ".join([t.strip() for t in tags])
-        positive = ", ".join([DEFAULT_POSITIVE_PROMPT, tags])
         self.autogen = False
 
         # Parameter controls
         self.text_prompt_before = wx.TextCtrl(
             self,
             id=wx.ID_ANY,
-            value=positive,
+            value=self.preview_options.prompt_before,
             size=self.Parent.FromDIP(wx.Size(250, 100)),
             style=wx.TE_MULTILINE | wx.TE_PROCESS_ENTER,
         )
         self.text_prompt_after = wx.TextCtrl(
             self,
             id=wx.ID_ANY,
-            value=DEFAULT_NEGATIVE_PROMPT,
+            value=self.preview_options.prompt_after,
             size=self.Parent.FromDIP(wx.Size(250, 100)),
             style=wx.TE_MULTILINE | wx.TE_PROCESS_ENTER,
         )
-
-        # self.label_n_tags = wx.StaticText(self, wx.ID_ANY, label="# Top Tags")
-        # self.spinner_n_tags = wx.SpinCtrl(
-        #     self,
-        #     id=wx.ID_ANY,
-        #     value="",
-        #     style=wx.SP_ARROW_KEYS,
-        #     min=-1,
-        #     max=100,
-        #     initial=10,
-        # )
-
-        # tag_totals = combine_tag_freq(items[0].get("tag_frequency") or {})
-        # if len(tag_totals) == 0:
-        #     self.spinner_n_tags.Disable()
-        #     self.spinner_n_tags.SetValue(0)
-
-        self.spinner_seed = wx.SpinCtrl(
-            self,
-            id=wx.ID_ANY,
-            value="",
-            style=wx.SP_ARROW_KEYS,
-            min=-1,
-            max=2**16,
-            initial=-1,
-            size=self.Parent.FromDIP(wx.Size(100, 25)),
-        )
-
-        self.spinner_denoise = floatspin.FloatSpin(
-            self,
-            id=wx.ID_ANY,
-            min_val=0,
-            max_val=1,
-            increment=0.01,
-            value=1,
-            agwStyle=floatspin.FS_LEFT,
-        )
-        self.spinner_denoise.SetFormat("%f")
-        self.spinner_denoise.SetDigits(2)
 
         # Status controls/buttons
         self.status_text = wx.StaticText(self, -1, "Ready")
@@ -254,7 +258,6 @@ class PreviewGeneratorDialog(wx.Dialog):
             self, style=wx.SUNKEN_BORDER, size=app.FromDIP(512, 512)
         )
         self.button_regenerate = wx.Button(self, wx.ID_HELP, "Generate")
-        # self.button_regenerate.Disable()
         self.button_upscale = wx.Button(self, wx.ID_APPLY, "Upscale")
         self.button_upscale.Disable()
         self.button_cancel = wx.Button(self, wx.ID_CANCEL, "Cancel")
@@ -264,8 +267,6 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.Bind(wx.EVT_BUTTON, self.OnRegenerate, id=wx.ID_HELP)
         self.Bind(wx.EVT_BUTTON, self.OnUpscale, id=wx.ID_APPLY)
         self.Bind(wx.EVT_BUTTON, self.OnCancel, id=wx.ID_CANCEL)
-        # self.text_prompt_before.Bind(wx.EVT_TEXT_ENTER, self.OnRegenerate)
-        # self.text_prompt_after.Bind(wx.EVT_TEXT_ENTER, self.OnRegenerate)
         wxasync.AsyncBind(wx.EVT_BUTTON, self.OnOK, self.button_ok, id=wx.ID_OK)
         wxasync.AsyncBind(wx.EVT_CLOSE, self.OnClose, self)
 
@@ -281,15 +282,6 @@ class PreviewGeneratorDialog(wx.Dialog):
         sizerLeft.AddSpacer(8)
         sizerLeft.Add(self.status_text)
 
-        # sizerRightMid = wx.BoxSizer(wx.HORIZONTAL)
-        # sizerRightMid.Add(
-        #     self.label_n_tags,
-        #     proportion=1,
-        #     border=5,
-        #     flag=wx.ALL,
-        # )
-        # sizerRightMid.Add(self.spinner_n_tags, proportion=1, flag=wx.ALL, border=5)
-
         sizerRightAfter = wx.BoxSizer(wx.HORIZONTAL)
         sizerRightAfter.Add(
             wx.StaticText(self, wx.ID_ANY, label="Seed"),
@@ -297,22 +289,127 @@ class PreviewGeneratorDialog(wx.Dialog):
             border=5,
             flag=wx.ALL,
         )
+        self.spinner_seed = wx.TextCtrl(self, wx.ID_ANY, value=str(self.preview_options.seed), size=self.Parent.FromDIP(wx.Size(140, 25)))
         sizerRightAfter.Add(self.spinner_seed, proportion=1, flag=wx.ALL, border=5)
+
         sizerRightAfter.Add(
             wx.StaticText(self, wx.ID_ANY, label="Denoise"),
             proportion=0,
             border=5,
             flag=wx.ALL,
         )
+        self.spinner_denoise = floatspin.FloatSpin(
+            self,
+            id=wx.ID_ANY,
+            min_val=0,
+            max_val=1,
+            increment=0.01,
+            value=self.preview_options.denoise,
+            agwStyle=floatspin.FS_LEFT,
+            size=self.Parent.FromDIP(wx.Size(140, 25)),
+        )
+        self.spinner_denoise.SetFormat("%f")
+        self.spinner_denoise.SetDigits(2)
         sizerRightAfter.Add(self.spinner_denoise, proportion=1, flag=wx.ALL, border=5)
+
+        sizerRightAfter2 = wx.BoxSizer(wx.HORIZONTAL)
+        sizerRightAfter2.Add(
+            wx.StaticText(self, wx.ID_ANY, label="CFG"),
+            proportion=0,
+            border=5,
+            flag=wx.ALL,
+        )
+        self.spinner_cfg = wx.SpinCtrl(
+            self,
+            id=wx.ID_ANY,
+            value="",
+            style=wx.SP_ARROW_KEYS,
+            min=1,
+            max=30,
+            initial=self.preview_options.cfg,
+            size=self.Parent.FromDIP(wx.Size(150, 25)),
+        )
+        sizerRightAfter2.Add(self.spinner_cfg, proportion=1, flag=wx.ALL, border=5)
+
+        sizerRightAfter2.Add(
+            wx.StaticText(self, wx.ID_ANY, label="Steps"),
+            proportion=0,
+            border=5,
+            flag=wx.ALL,
+        )
+        self.spinner_steps = wx.SpinCtrl(
+            self,
+            id=wx.ID_ANY,
+            value="",
+            style=wx.SP_ARROW_KEYS,
+            min=1,
+            max=50,
+            initial=self.preview_options.steps,
+            size=self.Parent.FromDIP(wx.Size(150, 25)),
+        )
+        sizerRightAfter2.Add(self.spinner_steps, proportion=1, flag=wx.ALL, border=5)
+
+        sizerRightAfter3 = wx.BoxSizer(wx.HORIZONTAL)
+        sizerRightAfter3.Add(
+            wx.StaticText(self, wx.ID_ANY, label="Clip"),
+            proportion=0,
+            border=5,
+            flag=wx.ALL,
+        )
+        self.spinner_clip = wx.SpinCtrl(
+            self,
+            id=wx.ID_ANY,
+            value="",
+            style=wx.SP_ARROW_KEYS,
+            min=-12,
+            max=-1,
+            initial=self.preview_options.clip,
+            size=self.Parent.FromDIP(wx.Size(140, 25)),
+        )
+        sizerRightAfter3.Add(self.spinner_clip, proportion=1, flag=wx.ALL, border=5)
+
+        sizerRightAfter4 = wx.BoxSizer(wx.HORIZONTAL)
+        sizerRightAfter4.Add(
+            wx.StaticText(self, wx.ID_ANY, label="Sampler"),
+            proportion=0,
+            border=5,
+            flag=wx.ALL,
+        )
+        choices = ["euler", "euler_ancestral", "dpmpp_3m_sde"]
+        self.sampler = wx.ComboBox(self, id=wx.ID_ANY, value=self.preview_options.sampler, choices=choices)
+        sizerRightAfter4.Add(self.sampler, proportion=1, flag=wx.ALL, border=5)
+        sizerRightAfter4.Add(
+            wx.StaticText(self, wx.ID_ANY, label="Scheduler"),
+            proportion=0,
+            border=5,
+            flag=wx.ALL,
+        )
+        choices = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform"]
+        self.scheduler = wx.ComboBox(self, id=wx.ID_ANY, value=self.preview_options.scheduler, choices=choices)
+        sizerRightAfter4.Add(self.scheduler, proportion=1, flag=wx.ALL, border=5)
+
+        sizerRightAfter5 = wx.BoxSizer(wx.HORIZONTAL)
+        sizerRightAfter5.Add(
+            wx.StaticText(self, wx.ID_ANY, label="Lora Base"),
+            proportion=0,
+            border=5,
+            flag=wx.ALL,
+        )
+        choices = ["AOM3.safetensors", "Anything-V3.0-pruned-fp16.ckpt", "v1-5-pruned.ckpt"]
+        self.lora_base = wx.ComboBox(self, id=wx.ID_ANY, value=self.preview_options.lora_base, choices=choices)
+        sizerRightAfter5.Add(self.lora_base, proportion=1, flag=wx.ALL, border=5)
+
 
         sizerRight = wx.StaticBoxSizer(wx.VERTICAL, self, label="Parameters")
         sizerRight.Add(wx.StaticText(self, wx.ID_ANY, label="Positive"))
-        sizerRight.Add(self.text_prompt_before, proportion=2, flag=wx.ALL | wx.EXPAND)
-        # sizerRight.Add(sizerRightMid, proportion=1, flag=wx.ALL)
+        sizerRight.Add(self.text_prompt_before, proportion=3, flag=wx.ALL | wx.EXPAND)
         sizerRight.Add(wx.StaticText(self, wx.ID_ANY, label="Negative"))
-        sizerRight.Add(self.text_prompt_after, proportion=2, flag=wx.ALL | wx.EXPAND)
+        sizerRight.Add(self.text_prompt_after, proportion=3, flag=wx.ALL | wx.EXPAND)
         sizerRight.Add(sizerRightAfter, proportion=1, flag=wx.ALL)
+        sizerRight.Add(sizerRightAfter2, proportion=1, flag=wx.ALL)
+        sizerRight.Add(sizerRightAfter3, proportion=1, flag=wx.ALL)
+        sizerRight.Add(sizerRightAfter4, proportion=1, flag=wx.ALL)
+        sizerRight.Add(sizerRightAfter5, proportion=1, flag=wx.ALL)
         sizerRight.Add(
             self.models_text,
             proportion=0,
@@ -334,8 +431,6 @@ class PreviewGeneratorDialog(wx.Dialog):
         wrapper.Add(sizer, 1, wx.EXPAND | wx.ALL, 10)
 
         self.SetSizerAndFit(wrapper)
-
-        # self.start_prompt()
 
     async def save_preview_image(self, item, result):
         self.app.SetStatusText("Saving preview...")
@@ -408,13 +503,13 @@ class PreviewGeneratorDialog(wx.Dialog):
                 filename = os.path.basename(item["filepath"])
                 self.status_text.SetLabel(f"Generating preview for {filename}")
                 self.models_text.SetLabel(f"Progress: {i}/{len(self.items)-1}")
-                self.spinner_seed.SetValue(self.last_seed)
+                self.spinner_seed.SetValue(str(self.last_seed))
                 e = Event()
                 thread = self.start_prompt(item, e=e)
                 await e.wait()
                 if upscaled:
                     self.status_text.SetLabel("Starting upscale...")
-                    self.spinner_seed.SetValue(self.last_upscale_seed)
+                    self.spinner_seed.SetValue(str(self.last_upscale_seed))
                     e = Event()
                     thread = self.upscale_prompt(item, e=e)
                     await e.wait()
@@ -486,48 +581,48 @@ class PreviewGeneratorDialog(wx.Dialog):
         return GeneratePreviewsOptions(
             self.text_prompt_before.GetValue(),
             self.text_prompt_after.GetValue(),
-            20,
-            self.spinner_seed.GetValue(),
-            self.spinner_denoise.GetValue(),
+            int(self.spinner_seed.GetValue()),
+            float(self.spinner_denoise.GetValue()),
+            int(self.spinner_cfg.GetValue()),
+            int(self.spinner_steps.GetValue()),
+            int(self.spinner_clip.GetValue()),
+            self.sampler.GetValue(),
+            self.scheduler.GetValue(),
+            self.lora_base.GetValue(),
         )
 
     def assemble_prompt_data(self, item):
-        options = self.get_prompt_options()
-
         checkpoint = item["filename"]
-
-        if options.seed == -1:
-            seed = random.randint(0, 2**16)
-        else:
-            seed = options.seed
-
-        denoise = options.denoise
-
-        print(f"Seed: {seed}")
-
-        positive = f"{options.prompt_before}"
-        posKey = item["keywords"]
-        if posKey:
-            if posKey.startswith(OVERRIDE_KEYWORD):
-                positive = ""
-                posKey = posKey.replace(OVERRIDE_KEYWORD, "")
-            else:
-                posKey = f", {posKey}"
-            positive += posKey
-        negative = options.prompt_after
-        negKey = item["negative_keywords"]
-        if negKey:
-            if negKey.startswith(OVERRIDE_KEYWORD):
-                negative = ""
-                negKey = negKey.replace(OVERRIDE_KEYWORD, "")
-            else:
-                negKey = f", {negKey}"
-            negative += negKey
-
+        inputOptions = self.get_prompt_options()
+        itemOptions = self.item_to_preview_options(item)
+        positive = inputOptions.prompt_before if self.preview_options.prompt_before != inputOptions.prompt_before else itemOptions.prompt_before
+        negative = inputOptions.prompt_after if self.preview_options.prompt_after != inputOptions.prompt_after else itemOptions.prompt_after
+        seed = inputOptions.seed if inputOptions.seed != self.preview_options.seed else itemOptions.seed
+        if seed == -1:
+            seed = random.randint(0, 2**32)
+        denoise = inputOptions.denoise if inputOptions.denoise != self.preview_options.denoise else itemOptions.denoise
+        cfg = inputOptions.cfg if inputOptions.cfg != self.preview_options.cfg else itemOptions.cfg
+        steps = inputOptions.steps if inputOptions.steps != self.preview_options.steps else itemOptions.steps
+        clip = inputOptions.clip if inputOptions.clip != self.preview_options.clip else itemOptions.clip
+        sampler = inputOptions.sampler if inputOptions.sampler != self.preview_options.sampler else itemOptions.sampler
+        scheduler = inputOptions.scheduler if inputOptions.scheduler != self.preview_options.scheduler else itemOptions.scheduler
+        loraBase = inputOptions.lora_base if inputOptions.lora_base != self.preview_options.lora_base else itemOptions.lora_base
         tags = item["tags"]
         data = PreviewPromptData(
-            seed, denoise, checkpoint, positive, negative, tags
+            seed, 
+            denoise, 
+            checkpoint, 
+            positive, 
+            negative, 
+            cfg,
+            steps,
+            clip,
+            sampler,
+            scheduler,
+            loraBase,
+            tags
         )
+        print(f"Seed: {seed}")
         return data
 
     def enqueue_prompt_and_wait(self, executor, prompt):
@@ -666,6 +761,73 @@ class PreviewGeneratorDialog(wx.Dialog):
         # dialog.Destroy()
         self.AsyncEndModal(wx.ID_CANCEL)
 
+    def item_to_preview_options(self, itemsOrItems):
+        item = itemsOrItems
+        if isinstance(itemsOrItems, list):
+            item = itemsOrItems[0]
+        notes = item.get("notes") or ""
+        # build positive prompt
+        re_notes_positive = re.search(r"positive:(.+)\n", notes)
+        notes_positive = re_notes_positive.group(1).strip() if re_notes_positive else DEFAULT_POSITIVE
+        positive = notes_positive.strip()
+        posKey = item["keywords"]
+        if posKey:
+            if posKey.startswith(OVERRIDE_KEYWORD):
+                positive = ""
+                posKey = posKey.replace(OVERRIDE_KEYWORD, "")
+            else:
+                posKey = f", {posKey}"
+            positive += posKey
+        # build negative prompt
+        re_notes_negative = re.search(r"negative:(.+)\n", notes)
+        notes_negative = re_notes_negative.group(1).strip() if re_notes_negative else DEFAULT_NEGATIVE
+        negative = notes_negative.strip()
+        negKey = item["negative_keywords"]
+        if negKey:
+            if negKey.startswith(OVERRIDE_KEYWORD):
+                negative = ""
+                negKey = negKey.replace(OVERRIDE_KEYWORD, "")
+            else:
+                negKey = f", {negKey}"
+            negative += negKey
+        # build seed
+        re_notes_seed = re.search(r"seed:\s*(\d+)", notes, re.I)
+        seed = int(re_notes_seed.group(1).strip()) if re_notes_seed else DEFAULT_SEED
+        # build denoise
+        re_notes_denoise = re.search(r"denoise:\s*(\d+\.?\d*)", notes, re.I)
+        denoise = float(re_notes_denoise.group(1).strip()) if re_notes_denoise else DEFAULT_DENOISE
+        # build cfg
+        re_notes_cfg = re.search(r"cfg:\s*(\d+)", notes, re.I)
+        cfg = int(re_notes_cfg.group(1).strip()) if re_notes_cfg else DEFAULT_CFG
+        # build steps
+        re_notes_steps = re.search(r"steps:\s*(\d+)", notes, re.I)
+        steps = int(re_notes_steps.group(1).strip()) if re_notes_steps else DEFAULT_STEPS
+        # build clip
+        re_notes_clip = re.search(r"clip:\s*(-?\s*\d+)", notes, re.I)
+        clip = int(re_notes_clip.group(1).strip()) if re_notes_clip else DEFAULT_CLIP
+        # build sampler
+        re_notes_sampler = re.search(r"sampler:\s*([\w\.\-_]+)", notes, re.I)
+        sampler = re_notes_sampler.group(1).strip() if re_notes_sampler else DEFAULT_SAMPLER
+        # build scheduler
+        re_notes_scheduler = re.search(r"scheduler:\s*([\w\.\-_]+)", notes, re.I)
+        scheduler = re_notes_scheduler.group(1).strip() if re_notes_scheduler else DEFAULT_SCHEDULER
+        # build lora base
+        re_notes_lora_base = re.search(r"lora[_\-\s]*base:\s*([\w\.\-_]+)", notes, re.I)
+        lora_base = re_notes_lora_base.group(1).strip() if re_notes_lora_base else DEFAULT_LORA_BASE
+        previewPrompOptions = GeneratePreviewsOptions(
+            positive,
+            negative,
+            seed,
+            denoise,
+            cfg,
+            steps,
+            clip,
+            sampler,
+            scheduler,
+            lora_base
+        )
+        return previewPrompOptions
+
 
 def any_have_previews(items):
     count = 0
@@ -678,7 +840,6 @@ def any_have_previews(items):
             count += 1
 
     return count
-
 
 async def run(app, items):
     if not items:

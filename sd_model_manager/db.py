@@ -171,7 +171,7 @@ class DB:
     
     def merge_comfy_paths(self, paths):
         if not is_comfyui():
-            return
+            return paths
         if not paths:
             paths = []
         current_file_path = os.path.dirname(os.path.realpath(__file__))

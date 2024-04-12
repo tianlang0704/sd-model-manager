@@ -32,7 +32,7 @@ class DirTreePanel(wx.Panel):
         )
 
         self.dir_tree = wx.TreeCtrl(
-            self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, wx.TR_HAS_BUTTONS
+            self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, wx.TR_HAS_BUTTONS | wx.TR_HIDE_ROOT
         )
         self.dir_tree.SetImageList(self.icons)
         self.button_clear = wx.Button(self, label="Clear Filter")
@@ -62,17 +62,21 @@ class DirTreePanel(wx.Panel):
         index = self.dir_tree.GetSelection()
         segments = []
 
-        while index.IsOk():
-            segments.append(self.dir_tree.GetItemText(index))
-            index = self.dir_tree.GetItemParent(index)
-
+        # multiple root + hide root causes tree to bugout, use try catch as workaround
+        try:
+            while index.IsOk():
+                item = self.dir_tree.GetItemText(index)
+                segments.append(item)
+                index = self.dir_tree.GetItemParent(index)
+        except Exception as e:
+            pass
         path = os.path.normpath(os.path.join(*list(reversed(segments))))
-
         self.pub.publish(Key("tree_filter_changed"), path)
 
     async def SubSearchFinished(self, key, results):
         self.dir_tree.DeleteAllItems()
         self.button_clear.Disable()
+        self.dummy_root = self.dir_tree.AddRoot("Root")
         self.roots = []
 
         roots = set()
@@ -80,7 +84,8 @@ class DirTreePanel(wx.Panel):
             roots.add(result["root_path"])
 
         for root in list(roots):
-            self.roots.append(self.dir_tree.AddRoot(root))
+            # self.roots.append(self.dir_tree.AddRoot(root))
+            self.roots.append(self.dir_tree.AppendItem(self.dummy_root, root))
 
         def find(root, name):
             item, cookie = self.dir_tree.GetFirstChild(root)

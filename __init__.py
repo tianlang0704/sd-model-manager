@@ -2,24 +2,13 @@
 
 import os
 import sys
-import inspect
 import asyncio
 
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__))))
 
 from sd_model_manager.db import DB
 from sd_model_manager.api.views import routes as api_routes
-from sd_model_manager.utils.common import get_config
-
-
-def is_comfyui():
-    for i in inspect.stack(0):
-        filename = os.path.basename(i[1])
-        function = i.function
-        if filename == "nodes.py" and function == "load_custom_node":
-            return True
-    return False
-
+from sd_model_manager.utils.common import get_config, is_comfyui
 
 async def initialize_comfyui():
     print("[SD-Model-Manager] Initializing...")

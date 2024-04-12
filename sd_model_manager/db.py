@@ -1,3 +1,4 @@
+from http import server
 import os
 import os.path
 import io
@@ -12,8 +13,9 @@ from datetime import datetime
 from sqlalchemy import select, delete, func, and_
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import relationship, sessionmaker, declarative_base
+import yaml
 
-from sd_model_manager.utils.common import PATH, find_image
+from sd_model_manager.utils.common import PATH, find_image, is_comfyui
 from sd_model_manager.utils import safetensors_hack
 from sd_model_manager.models.sd_models import Base, PreviewImage, SDModel, LoRAModel
 
@@ -148,7 +150,6 @@ def format_module_name(m):
 class DB:
     def __init__(self):
         self.engine = None
-        self.Session = None
         pass
 
     async def init(self, model_paths):
@@ -167,8 +168,35 @@ class DB:
         print(f"Database is at {path}.db.")
 
         await self.scan(model_paths)
+    
+    def merge_comfy_paths(self, paths):
+        if not is_comfyui():
+            return
+        if not paths:
+            paths = []
+        current_file_path = os.path.dirname(os.path.realpath(__file__))
+        comfyui_root_path = os.path.abspath(os.path.join(current_file_path, "..", "..", ".."))
+        comfyui_model_path = os.path.join(comfyui_root_path, "models")
+        if comfyui_model_path not in paths:
+            paths.append(comfyui_model_path)
 
+        try:
+            extra_conf_path = os.path.join(comfyui_root_path, "extra_model_paths.yaml")
+            extra_conf = yaml.safe_load(open(extra_conf_path, "r"))
+            for key, value in extra_conf.items():
+                base_path = value.get("base_path")
+                if base_path is None:
+                    continue
+                if base_path not in paths:
+                    paths.append(base_path)
+        except:
+            pass
+        return paths
+    
     async def scan(self, paths):
+        paths = self.merge_comfy_paths(paths)
+        if not paths:
+            return
         for p in paths:
             if not os.path.isdir(p):
                 raise RuntimeError(f"Invalid path: {p}")

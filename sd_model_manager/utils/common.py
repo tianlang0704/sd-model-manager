@@ -7,7 +7,7 @@ from typing import Any, Optional, List
 from aiohttp import web
 import configargparse
 import argparse
-
+import inspect
 
 PATH = pathlib.Path(__file__).parent.parent.parent
 # settings_file = os.environ.get('SETTINGS_FILE', 'api.dev.yml')
@@ -76,3 +76,11 @@ def find_image(filepath, load=False, fuzzy=True):
                 elif is_image_path(file):
                     return None, file
     return None, None
+
+def is_comfyui():
+    for i in inspect.stack(0):
+        filename = os.path.basename(i[1])
+        function = i.function
+        if filename == "nodes.py" and function == "load_custom_node":
+            return True
+    return False

@@ -143,7 +143,7 @@ def create_popup_menu_for_item(target, evt, app):
         ),
         PopupMenuSeparator(),
         PopupMenuItem(
-            "Image Prompt",
+            "Copy Preview Image Prompt",
             lambda t, e: copy_to_clipboard(image_prompt, app),
             enabled=image_prompt is not None,
             icon=icon_copy,

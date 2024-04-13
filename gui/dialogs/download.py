@@ -15,6 +15,7 @@ import simplejson
 from wx.lib.agw import floatspin
 from dataclasses import dataclass
 from asyncio.locks import Event
+from PIL import Image
 
 from sd_model_manager.utils.common import try_load_image
 from gui import ids, utils
@@ -652,16 +653,7 @@ class PreviewGeneratorDialog(wx.Dialog):
                     elif ty == "progress":
                         self.on_msg_progress(status)
                 else:
-                    msg = io.BytesIO(msg["data"])
-                    ty = struct.unpack(">I", msg.read(4))[0]
-                    if ty == 1:  # preview image
-                        format = struct.unpack(">I", msg.read(4))[0]
-                        if format == 2:
-                            img_type = wx.BITMAP_TYPE_PNG
-                        else:  # 1
-                            img_type = wx.BITMAP_TYPE_JPEG
-                        image = wx.Image(msg, type=img_type)
-                        self.image_panel.LoadBitmap(image.ConvertToBitmap())
+                    self.image_panel.LoadImageFromBytes(msg["data"])
 
         return prompt_id
 
@@ -693,7 +685,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             image_files = files[node_id]
         if not image_datas:
             return None, None
-        return wx.Image(io.BytesIO(image_datas[0])), image_files[0]
+        return image_datas[0], image_files[0]
 
     def do_execute(self, item):
         self.before_execute()
@@ -704,9 +696,9 @@ class PreviewGeneratorDialog(wx.Dialog):
             prompt = data.to_prompt()
             prompt_id = self.enqueue_prompt_and_wait(executor, prompt)
 
-        image, image_location = self.get_output_image(prompt_id)
-        if image:
-            self.image_panel.LoadBitmap(image.ConvertToBitmap())
+        image_data, image_location = self.get_output_image(prompt_id)
+        if image_data:
+            self.image_panel.LoadImageFromBytes(image_data)
 
         self.last_data = data
         self.last_output = image_location
@@ -723,9 +715,9 @@ class PreviewGeneratorDialog(wx.Dialog):
             prompt = data.to_hr_prompt(self.last_output)
             prompt_id = self.enqueue_prompt_and_wait(executor, prompt)
 
-        image, image_location = self.get_output_image(prompt_id)
-        if image:
-            self.image_panel.LoadBitmap(image.ConvertToBitmap())
+        image_data, image_location = self.get_output_image(prompt_id)
+        if image_data:
+            self.image_panel.LoadImageFromBytes(image_data)
 
         self.last_data = data
         self.result = image_location

@@ -36,10 +36,6 @@ class PreviewImagePanel(wx.Panel):
             image, path = find_image_for_model(items[0])
 
         if image:
-            width, height = image.size
-            bitmap = wx.Bitmap.FromBuffer(width, height, image.tobytes())
-            self.image_view.LoadBitmap(bitmap)
-            # self.text_preview_image.ChangeValue(path)
+            self.image_view.SetImage(image)
         else:
             self.image_view.Clear()
-            # self.text_preview_image.Clear()

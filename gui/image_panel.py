@@ -29,13 +29,13 @@
 
 """
 
+import io
+import os
 import wx
-
 # import wx.lib.mixins.inspection
-
-
 import wx.lib.scrolledpanel as scrolled
-
+from PIL import Image
+import gui.utils
 
 class ImagePanel(wx.Panel):
     """
@@ -60,23 +60,41 @@ class ImagePanel(wx.Panel):
         super().__init__(parent, id, pos, size, style=style)
 
         self.bmpImage = wx.StaticBitmap(self, wx.ID_ANY)
+        self.bmpImage.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
         self.sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.sizer.Add(self.bmpImage, 1, wx.EXPAND, 0)
         self.SetSizer(self.sizer)
 
-        self.bitmap = None  # loaded image in bitmap format
         self.image = None  # loaded image in image format
         self.aspect = None  # loaded image aspect ratio
         self.zoom = 1.0  # zoom factor
-
         self.blank = wx.Bitmap(1, 1)
 
         self.Bind(wx.EVT_SIZE, self.OnSize)
         self.Bind(wx.EVT_MOUSEWHEEL, self.OnMouseWheel)
 
-        # self.SetupScrolling()
-
-        # wx.lib.inspection.InspectionTool().Show()
+    def OnLeftDown(self, event):
+        """Start dragging"""
+        if not self.image:
+            return
+        data = ""
+        if "parameters" in self.image.info:
+            data = self.image.info["parameters"]
+        elif "prompt" in self.image.info:
+            data = self.image.info["prompt"]
+        write_path = os.path.join(gui.utils.PROGRAM_ROOT, "drag_drop_temp.json")
+        try:
+            if os.path.exists(write_path):
+                os.remove(write_path)
+            with open(write_path, "w") as f:
+                f.write(data)
+        except:
+            return
+        dataObj = wx.FileDataObject()
+        dataObj.AddFile(write_path)
+        dropSource = wx.DropSource(self)
+        dropSource.SetData(dataObj)
+        dropSource.DoDragDrop(True)
 
     def OnSize(self, event):
         """When panel is resized, scale the image to fit"""
@@ -94,23 +112,24 @@ class ImagePanel(wx.Panel):
 
         event.Skip()
 
-    def Load(self, file: str) -> None:
-        """Load the image file into the control for display"""
-        self.LoadBitmap(wx.Bitmap(file, wx.BITMAP_TYPE_ANY))
-
-    def LoadBitmap(self, bitmap) -> None:
-        """Load the image file into the control for display"""
-        self.bitmap = bitmap
-        self.image = wx.Bitmap.ConvertToImage(self.bitmap)
-        self.aspect = self.image.GetSize()[1] / self.image.GetSize()[0]
+    def SetImage(self, image):
+        """Set the image to be displayed"""
+        self.image = image
+        self.aspect = image.height / image.width
         self.zoom = 1.0
-
         self.ScaleToFit()
+
+    def LoadImageFromBytes(self, data) -> None:
+        image = Image.open(io.BytesIO(data))
+        self.SetImage(image)
+
+    def LoadImageFrompath(self, path) -> None:
+        image = Image.open(path)
+        self.SetImage(image)
 
     def Clear(self):
         """Set the displayed image to blank"""
         self.bmpImage.SetBitmap(self.blank)
-        self.bitmap = None
         self.image = None
         self.aspect = None
         self.zoom = 1.0
@@ -139,13 +158,6 @@ class ImagePanel(wx.Panel):
             nw = int(nw * self.zoom)
 
             # scale the image to new dimensions and display
-            image = self.image.Scale(nw, nh, quality=wx.IMAGE_QUALITY_BICUBIC)
-            self.bmpImage.SetBitmap(image.ConvertToBitmap())
+            image = self.image.resize((nw, nh), resample=Image.BICUBIC)
+            self.bmpImage.SetBitmap(wx.BitmapFromBuffer(nw, nh, image.tobytes()))
             self.Layout()
-
-            # if self.zoom > 1.0:
-            #     self.ShowScrollBars = True
-            #     self.SetupScrolling()
-            # else:
-            #     self.ShowScrollBars = False
-            #     self.SetupScrolling()

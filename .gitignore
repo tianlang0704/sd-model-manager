@@ -20,3 +20,4 @@ client.spec
 .#*
 *.log
 .vscode
+drag_drop_temp.json

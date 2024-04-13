@@ -225,11 +225,24 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
             def check(target, event, col=col, i=i):
                 col.is_visible = not col.is_visible
                 self.SetColumnShown(i, col.is_visible)
-            items.append(PopupMenuItem(col.name, check, checked=col.is_visible))
+            items.append(PopupMenuItem(col.name, check, checked=col.is_visible))    
         menu = PopupMenu(target=self, items=items, app=self.app)
         pos = evt.GetPoint()
         self.PopupMenu(menu, pos)
         menu.Destroy()
+
+    def MousePosToCol(self, pos):
+        pos_with_scroll = self._mainWin.CalcUnscrolledPosition(pos)
+        local_pos = self.ScreenToClient(pos_with_scroll)
+        x = local_pos[0]
+        for i, col in enumerate(COLUMNS):
+            if not col.is_visible:
+                continue
+            col_width = self.GetColumnWidth(i)
+            if x < col_width:
+                return i
+            x -= col_width
+        return None
 
 
 class GalleryThumbnailHandler(PILImageHandler):

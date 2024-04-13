@@ -93,15 +93,15 @@ class MainWindow(wx.Frame):
         wxasync.AsyncBind(wx.EVT_TOOL, self.OnSave, self, id=wx.ID_SAVE)
         wxasync.AsyncBind(wx.EVT_TOOL, self.OnClearChange, self, id=wx.ID_CLEAR)
         wxasync.AsyncBind(wx.EVT_TOOL, self.OnOpenFolder, self, id=ids.ID_OPEN_FOLDER)
-        wxasync.AsyncBind(
-            wx.EVT_TOOL, self.OnGeneratePreviews, self, id=ids.ID_GENERATE_PREVIEWS
-        )
+        wxasync.AsyncBind(wx.EVT_TOOL, self.OnCopy, self, id=wx.ID_COPY)
+        wxasync.AsyncBind(wx.EVT_TOOL, self.OnGeneratePreviews, self, id=ids.ID_GENERATE_PREVIEWS)
 
         self.accel_tbl = wx.AcceleratorTable(
             [
                 (wx.ACCEL_CTRL, ord("S"), wx.ID_SAVE),
                 (wx.ACCEL_CTRL, ord("Z"), wx.ID_CLEAR),
                 (wx.ACCEL_CTRL, ord("Q"), ids.ID_GENERATE_PREVIEWS),
+                (wx.ACCEL_CTRL, ord("C"), wx.ID_COPY),
             ]
         )
         self.SetAcceleratorTable(self.accel_tbl)
@@ -202,6 +202,22 @@ class MainWindow(wx.Frame):
         item = selection[0]
         path = item["filepath"]
         utils.open_on_file(path)
+
+    async def OnCopy(self, evt):
+        selection = self.results_panel.get_selection()
+        if not selection:
+            return
+        mouse_pos = wx.GetMousePosition()
+        col = self.results_panel.results_panel.list.MousePosToCol(mouse_pos)
+        value_list = []
+        for item in selection:
+            one_value = str(utils.COLUMNS[col].callback(item)) if col is not None else ""
+            value_list.append(one_value)
+        value_str = "\n".join(value_list)
+        wx.TheClipboard.Open()
+        wx.TheClipboard.SetData(wx.TextDataObject(value_str))
+        wx.TheClipboard.Close()
+        self.statusbar.SetStatusText(f"Copied: {value_str}")
 
     async def OnGeneratePreviews(self, evt, op = None):
         selection = self.results_panel.get_selection()

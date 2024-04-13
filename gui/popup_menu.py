@@ -89,7 +89,6 @@ def copy_to_clipboard(value, app=None):
     if wx.TheClipboard.Open():
         wx.TheClipboard.SetData(wx.TextDataObject(str(value)))
         wx.TheClipboard.Close()
-
         if app:
             app.frame.statusbar.SetStatusText(f"Copied: {utils.trim_string(value)}")
 

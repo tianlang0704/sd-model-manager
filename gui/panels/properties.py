@@ -53,25 +53,10 @@ class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):
             ("author", "Author", None, None),
             ("source", "Source", None, None),
             ("tags", "Tags", None, None),
-            (
-                "keywords",
-                "Keywords",
-                wx.TE_MULTILINE,
-                self.Parent.FromDIP(wx.Size(250, 40)),
-            ),
-            (
-                "negative_keywords",
-                "Negative Keywords",
-                wx.TE_MULTILINE,
-                self.Parent.FromDIP(wx.Size(250, 40)),
-            ),
-            (
-                "description",
-                "Description",
-                wx.TE_MULTILINE,
-                self.Parent.FromDIP(wx.Size(250, 300)),
-            ),
-            ("notes", "Notes", wx.TE_MULTILINE, self.Parent.FromDIP(wx.Size(250, 300))),
+            ("keywords","Keywords",wx.TE_MULTILINE,self.Parent.FromDIP(wx.Size(250, 40)),),
+            ("negative_keywords","Negative Keywords",wx.TE_MULTILINE,self.Parent.FromDIP(wx.Size(250, 40)),),
+            ("description","Description",wx.TE_MULTILINE,self.Parent.FromDIP(wx.Size(250, 150)),),
+            ("notes", "Notes", wx.TE_MULTILINE, self.Parent.FromDIP(wx.Size(250, 150))),
         ]
 
         for key, label, style, size in ctrls:

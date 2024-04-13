@@ -130,7 +130,7 @@ class MainWindow(wx.Frame):
             .Top()
             .Right()
             .CloseButton(False)
-            .MinSize(self.FromDIP(wx.Size(300, 300)))
+            .MinSize(self.FromDIP(wx.Size(200, 300)))
             .BestSize(self.FromDIP(wx.Size(400, 400))),
         )
 
@@ -142,7 +142,7 @@ class MainWindow(wx.Frame):
             .Bottom()
             .Right()
             .CloseButton(False)
-            .MinSize(self.FromDIP(wx.Size(300, 300)))
+            .MinSize(self.FromDIP(wx.Size(200, 300)))
             .BestSize(self.FromDIP(wx.Size(400, 400))),
         )
 

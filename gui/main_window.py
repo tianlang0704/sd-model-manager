@@ -99,7 +99,7 @@ class MainWindow(wx.Frame):
         self.accel_tbl = wx.AcceleratorTable(
             [
                 (wx.ACCEL_CTRL, ord("S"), wx.ID_SAVE),
-                (wx.ACCEL_CTRL, ord("Z"), wx.ID_CLEAR),
+                (wx.ACCEL_CTRL, ord("D"), wx.ID_CLEAR),
                 (wx.ACCEL_CTRL, ord("Q"), ids.ID_GENERATE_PREVIEWS),
                 (wx.ACCEL_CTRL, ord("C"), wx.ID_COPY),
             ]
@@ -147,26 +147,29 @@ class MainWindow(wx.Frame):
         )
 
         self.properties_panel = PropertiesPanel(self, app=self.app)
+        pane_info = wx.aui.AuiPaneInfo() \
+            .Caption("Properties") \
+            .Top() \
+            .Left() \
+            .CloseButton(False) \
+            .MinSize(self.FromDIP(wx.Size(325, 325)))
+        pane_info.dock_proportion = 5
         self.aui_mgr.AddPane(
             self.properties_panel,
-            wx.aui.AuiPaneInfo()
-            .Caption("Properties")
-            .Top()
-            .Left()
-            .CloseButton(False)
-            .MinSize(self.FromDIP(wx.Size(325, 325))),
+            pane_info,
         )
 
         self.image_panel = PreviewImagePanel(self, app=self.app)
+        pane_info = wx.aui.AuiPaneInfo() \
+            .Caption("Preview Image") \
+            .Bottom() \
+            .Left() \
+            .CloseButton(False) \
+            .MinSize(self.FromDIP(wx.Size(300, 300)))
+        pane_info.dock_proportion = 2
         self.aui_mgr.AddPane(
             self.image_panel,
-            wx.aui.AuiPaneInfo()
-            .Caption("Preview Image")
-            .Bottom()
-            .Left()
-            .CloseButton(False)
-            .MinSize(wx.Size(250, 250))
-            .BestSize(self.FromDIP(wx.Size(250, 250))),
+            pane_info,
         )
 
         self.aui_mgr.Update()

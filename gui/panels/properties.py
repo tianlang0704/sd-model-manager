@@ -28,20 +28,13 @@ class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):
         self.app = app
         self.roots = []
 
-        wx.lib.scrolledpanel.ScrolledPanel.__init__(
-            self, parent, id=wx.ID_ANY, style=wx.VSCROLL
-        )
+        wx.lib.scrolledpanel.ScrolledPanel.__init__(self, parent, id=wx.ID_ANY, style=wx.VSCROLL)
 
         self.sub = aiopubsub.Subscriber(PUBSUB_HUB, Key("events"))
-        self.sub.add_async_listener(
-            Key("events", "item_selected"), self.SubItemSelected
-        )
-        self.sub.add_async_listener(
-            Key("events", "tree_filter_changed"), self.SubTreeFilterChanged
-        )
+        self.sub.add_async_listener(Key("events", "item_selected"), self.SubItemSelected)
+        self.sub.add_async_listener(Key("events", "tree_filter_changed"), self.SubTreeFilterChanged)
 
         self.ctrls = {}
-
         self.selected_items = []
         self.changes = {}
         self.values = {}
@@ -56,7 +49,7 @@ class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):
             ("keywords","Keywords",wx.TE_MULTILINE,self.Parent.FromDIP(wx.Size(250, 40)),),
             ("negative_keywords","Negative Keywords",wx.TE_MULTILINE,self.Parent.FromDIP(wx.Size(250, 40)),),
             ("description","Description",wx.TE_MULTILINE,self.Parent.FromDIP(wx.Size(250, 150)),),
-            ("notes", "Notes", wx.TE_MULTILINE, self.Parent.FromDIP(wx.Size(250, 150))),
+            ("notes", "Notes", wx.TE_MULTILINE, self.Parent.FromDIP(wx.Size(250, 170))),
         ]
 
         for key, label, style, size in ctrls:
@@ -377,28 +370,3 @@ class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):
 
     async def SubTreeFilterChanged(self, key, sel):
         pass
-
-
-# class MetadataTagsList(wx.ListCtrl, listmix.ListCtrlAutoWidthMixin):
-#     def __init__(self, parent):
-#         self.tags = []
-
-#         wx.ListCtrl.__init__(
-#             self,
-#             parent,
-#             id=wx.ID_ANY,
-#             style=wx.LC_REPORT | wx.LC_VIRTUAL | wx.LC_HRULES | wx.LC_VRULES,
-#         )
-#         self.EnableAlternateRowColours(True)
-#         self.InsertColumn(0, "Tag")
-#         self.setResizeColumn(0)
-
-#     def set_tags(self, tags):
-#         self.tags = tags
-#         self.Refresh()
-
-#     def Clear(self):
-#         self.tags = []
-
-#     def OnGetItemText(self, item, col):
-#         return self.tags[item]

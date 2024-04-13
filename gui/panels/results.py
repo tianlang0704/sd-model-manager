@@ -100,6 +100,18 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
         self.Focus(0)
         self.pub.publish(Key("item_selected"), self.get_selection())
 
+    def restore_selection(self, selection):
+        selected_index = [self.index_from_id(item["id"]) for item in selection]
+        selected_index = [i for i in selected_index if i is not None]
+        if len(selected_index) <= 0:
+            return
+        self.ClearSelection()
+        for index in selected_index:
+            self.Select(index, 1)
+        self.Focus(selected_index[0])
+        selection = self.get_selection()
+        self.pub.publish(Key("item_selected"), selection)
+
     def refresh_filtered_data(self):
         data = self.results["data"]
         self.filtered = []
@@ -394,7 +406,9 @@ class ResultsPanel(wx.Panel):
 
     def get_selection(self):
         return self.list.get_selection()
-
+    
+    def restore_selection(self, selection):
+        self.list.restore_selection(selection)
 
 class ResultsNotebook(wx.Panel):
     def __init__(self, parent, app=None):
@@ -448,6 +462,9 @@ class ResultsNotebook(wx.Panel):
 
     def get_selection(self):
         return self.results_panel.get_selection()
+    
+    def restore_selection(self, selection):
+        self.results_panel.restore_selection(selection)
 
     async def refresh_one_item(self, item):
         try_load_image.cache_clear()

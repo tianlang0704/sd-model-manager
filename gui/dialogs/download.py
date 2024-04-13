@@ -15,7 +15,7 @@ import simplejson
 from wx.lib.agw import floatspin
 from dataclasses import dataclass
 from asyncio.locks import Event
-from PIL import Image
+from aiopubsub import Key
 
 from sd_model_manager.utils.common import try_load_image
 from gui import ids, utils
@@ -46,6 +46,17 @@ DEFAULT_CLIP = -1
 DEFAULT_SAMPLER = "euler_ancestral"
 DEFAULT_SCHEDULER = "normal"
 DEFAULT_LORA_BASE = "AOM3.safetensors"
+
+POSITIVE_REGEX = r"positive:(.+)\n*"
+NEGATIVE_REGEX = r"negative:(.+)\n*"
+SEED_REGEX = r"seed:\s*(\-?\s*\d+)\n*"
+DENOISE_REGEX = r"denoise:\s*(\d+\s*.?\s*\d*)\n*"
+CFG_REGEX = r"cfg:\s*(\d+)\n*"
+STEPS_REGEX = r"steps:\s*(\d+)\n*"
+CLIP_REGEX = r"clip:\s*(-?\s*\d+)\n*"
+SAMPLER_REGEX = r"sampler:\s*([\w\.\-_]+)\n*"
+SCHEDULER_REGEX = r"scheduler:\s*([\w\.\-_]+)\n*"
+LORA_BASE_REGEX = r"lora[_\-\s]*base:\s*([\w\.\-_]+)\n*"
 
 def load_prompt(name):
     with open(
@@ -212,8 +223,10 @@ KEY_NEGATIVE = "processed_negative"
 
 class PreviewGeneratorDialog(wx.Dialog):
     def __init__(self, parent, app, items, duplicate_op):
+        main_name = items[0]["filename"] if items and len(items) > 0 else ""
+        suffix = f" and other {len(items) - 1} model(s)" if len(items) > 1 else ""
         super(PreviewGeneratorDialog, self).__init__(
-            parent, -1, "Preview Generator", size=app.FromDIP(700, 500)
+            parent, -1, f"Preview Generator: {main_name}{suffix}", size=app.FromDIP(700, 500)
         )
         self.app = app
         self.comfy_api = ComfyAPI()
@@ -258,6 +271,8 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.image_panel = ImagePanel(
             self, style=wx.SUNKEN_BORDER, size=app.FromDIP(512, 512)
         )
+
+        self.button_save_notes = wx.Button(self, wx.ID_SAVE, "Save Notes")
         self.button_regenerate = wx.Button(self, wx.ID_HELP, "Generate")
         self.button_upscale = wx.Button(self, wx.ID_APPLY, "Upscale")
         self.button_upscale.Disable()
@@ -268,15 +283,16 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.Bind(wx.EVT_BUTTON, self.OnRegenerate, id=wx.ID_HELP)
         self.Bind(wx.EVT_BUTTON, self.OnUpscale, id=wx.ID_APPLY)
         self.Bind(wx.EVT_BUTTON, self.OnCancel, id=wx.ID_CANCEL)
+        wxasync.AsyncBind(wx.EVT_BUTTON, self.OnSave, self.button_save_notes, id=wx.ID_SAVE)
         wxasync.AsyncBind(wx.EVT_BUTTON, self.OnOK, self.button_ok, id=wx.ID_OK)
         wxasync.AsyncBind(wx.EVT_CLOSE, self.OnClose, self)
 
-        sizerB = wx.StdDialogButtonSizer()
-        sizerB.AddButton(self.button_regenerate)
-        sizerB.AddButton(self.button_upscale)
-        sizerB.AddButton(self.button_cancel)
-        sizerB.AddButton(self.button_ok)
-        sizerB.Realize()
+        sizerB = wx.BoxSizer(wx.HORIZONTAL)
+        sizerB.Add(self.button_ok, 0, wx.ALL, 5)
+        sizerB.Add(self.button_cancel, 0, wx.ALL, 5)
+        sizerB.Add(self.button_upscale, 0, wx.ALL, 5)
+        sizerB.Add(self.button_regenerate, 0, wx.ALL, 5)
+        sizerB.Add(self.button_save_notes, 0, wx.ALL, 5)
 
         sizerLeft = wx.BoxSizer(wx.VERTICAL)
         sizerLeft.Add(self.image_panel)
@@ -376,7 +392,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             border=5,
             flag=wx.ALL,
         )
-        choices = ["euler", "euler_ancestral", "dpmpp_3m_sde"]
+        choices = ["euler_ancestral", "dpmpp_2m"]
         self.sampler = wx.ComboBox(self, id=wx.ID_ANY, value=self.preview_options.sampler, choices=choices)
         sizerRightAfter4.Add(self.sampler, proportion=1, flag=wx.ALL, border=5)
         sizerRightAfter4.Add(
@@ -396,7 +412,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             border=5,
             flag=wx.ALL,
         )
-        choices = ["AOM3.safetensors", "Anything-V3.0-pruned-fp16.ckpt", "v1-5-pruned.ckpt"]
+        choices = ["PerfectWorld.safetensors", "astranime_V6.safetensors", "AOM3.safetensors", "Anything-V3.0-pruned-fp16.ckpt", "v1-5-pruned.ckpt"]
         self.lora_base = wx.ComboBox(self, id=wx.ID_ANY, value=self.preview_options.lora_base, choices=choices)
         sizerRightAfter5.Add(self.lora_base, proportion=1, flag=wx.ALL, border=5)
 
@@ -528,6 +544,81 @@ class PreviewGeneratorDialog(wx.Dialog):
         if self.autogen:
             return
         await on_close(self, evt)
+
+    async def OnSave(self, evt):
+        main_item = self.items[0]
+        notes = main_item.get("notes") or ""
+        insert_str = ""
+
+        positive = self.text_prompt_before.GetValue()
+        if re.search(POSITIVE_REGEX, notes, re.I):
+            notes = re.sub(POSITIVE_REGEX, f"positive: {positive}\n", notes, flags = re.I)
+        else:
+            insert_str += f"positive: {positive}\n"
+
+        negative = self.text_prompt_after.GetValue()
+        if re.search(NEGATIVE_REGEX, notes, re.I):
+            notes = re.sub(NEGATIVE_REGEX, f"negative: {negative}\n", notes, flags = re.I)
+        else:
+            insert_str += f"negative: {negative}\n"
+
+        seed = self.spinner_seed.GetValue()
+        if re.search(SEED_REGEX, notes, re.I):
+            notes = re.sub(SEED_REGEX, f"seed: {seed}\n", notes, flags = re.I)
+        else:
+            insert_str += f"seed: {seed}\n"
+        
+        denoise = self.spinner_denoise.GetValue()
+        if re.search(DENOISE_REGEX, notes, re.I):
+            notes = re.sub(DENOISE_REGEX, f"denoise: {denoise}\n", notes, flags = re.I)
+        else:
+            insert_str += f"denoise: {denoise}\n"
+
+        cfg = self.spinner_cfg.GetValue()
+        if re.search(CFG_REGEX, notes, re.I):
+            notes = re.sub(CFG_REGEX, f"cfg: {cfg}\n", notes, flags = re.I)
+        else:
+            insert_str += f"cfg: {cfg}\n"
+
+        steps = self.spinner_steps.GetValue()
+        if re.search(STEPS_REGEX, notes, re.I):
+            notes = re.sub(STEPS_REGEX, f"steps: {steps}\n", notes, flags = re.I)
+        else:
+            insert_str += f"steps: {steps}\n"
+
+        clip = self.spinner_clip.GetValue()
+        if re.search(CLIP_REGEX, notes, re.I):
+            notes = re.sub(CLIP_REGEX, f"clip: {clip}\n", notes, flags = re.I)
+        else:
+            insert_str += f"clip: {clip}\n"
+
+        sampler = self.sampler.GetValue()
+        if re.search(SAMPLER_REGEX, notes, re.I):
+            notes = re.sub(SAMPLER_REGEX, f"sampler: {sampler}\n", notes, flags = re.I)
+        else:
+            insert_str += f"sampler: {sampler}\n"
+        
+        scheduler = self.scheduler.GetValue()
+        if re.search(SCHEDULER_REGEX, notes, re.I):
+            notes = re.sub(SCHEDULER_REGEX, f"scheduler: {scheduler}\n", notes, flags = re.I)
+        else:
+            insert_str += f"scheduler: {scheduler}\n"
+
+        lora_base = self.lora_base.GetValue()
+        if re.search(LORA_BASE_REGEX, notes, re.I):
+            notes = re.sub(LORA_BASE_REGEX, f"lora_base: {lora_base}\n", notes, flags = re.I)
+        else:
+            insert_str += f"lora_base: {lora_base}\n"
+
+        results_panel = self.app.frame.results_panel
+        selection = results_panel.get_selection()
+        notes = insert_str + notes
+        main_item["notes"] = notes
+        result = await self.app.api.update_lora(main_item["id"], {"notes": notes})
+        print(result)
+        await results_panel.search(results_panel.searchBox.GetValue(), True)
+        results_panel.restore_selection(selection)
+        
 
     def OnRegenerate(self, evt):
         self.status_text.SetLabel("Starting...")
@@ -759,7 +850,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             item = itemsOrItems[0]
         notes = item.get("notes") or ""
         # build positive prompt
-        re_notes_positive = re.search(r"positive:(.+)\n", notes)
+        re_notes_positive = re.search(POSITIVE_REGEX, notes, re.I)
         notes_positive = re_notes_positive.group(1).strip() if re_notes_positive else DEFAULT_POSITIVE
         positive = notes_positive.strip()
         posKey = item["keywords"]
@@ -768,10 +859,19 @@ class PreviewGeneratorDialog(wx.Dialog):
                 positive = ""
                 posKey = posKey.replace(OVERRIDE_KEYWORD, "")
             else:
-                posKey = f", {posKey}"
+                keyToInsert = []
+                posKeyList = posKey.split(",")
+                for key in posKeyList:
+                    if key not in positive:
+                        keyToInsert.append(key.strip())
+                if len(keyToInsert) > 0:
+                    keyStr = ",".join(keyToInsert)
+                    posKey = f", {keyStr}"
+                else:
+                    posKey = ""
             positive += posKey
         # build negative prompt
-        re_notes_negative = re.search(r"negative:(.+)\n", notes)
+        re_notes_negative = re.search(NEGATIVE_REGEX, notes, re.I)
         notes_negative = re_notes_negative.group(1).strip() if re_notes_negative else DEFAULT_NEGATIVE
         negative = notes_negative.strip()
         negKey = item["negative_keywords"]
@@ -780,31 +880,40 @@ class PreviewGeneratorDialog(wx.Dialog):
                 negative = ""
                 negKey = negKey.replace(OVERRIDE_KEYWORD, "")
             else:
-                negKey = f", {negKey}"
+                keyToInsert = []
+                negKeyList = negKey.split(",")
+                for key in negKeyList:
+                    if key not in negative:
+                        keyToInsert.append(key.strip())
+                if len(keyToInsert) > 0:
+                    keyStr = ",".join(keyToInsert)
+                    negKey = f", {keyStr}"
+                else:
+                    negKey = ""
             negative += negKey
         # build seed
-        re_notes_seed = re.search(r"seed:\s*(\d+)", notes, re.I)
+        re_notes_seed = re.search(SEED_REGEX, notes, re.I)
         seed = int(re_notes_seed.group(1).strip()) if re_notes_seed else DEFAULT_SEED
         # build denoise
-        re_notes_denoise = re.search(r"denoise:\s*(\d+\.?\d*)", notes, re.I)
+        re_notes_denoise = re.search(DENOISE_REGEX, notes, re.I)
         denoise = float(re_notes_denoise.group(1).strip()) if re_notes_denoise else DEFAULT_DENOISE
         # build cfg
-        re_notes_cfg = re.search(r"cfg:\s*(\d+)", notes, re.I)
+        re_notes_cfg = re.search(CFG_REGEX, notes, re.I)
         cfg = int(re_notes_cfg.group(1).strip()) if re_notes_cfg else DEFAULT_CFG
         # build steps
-        re_notes_steps = re.search(r"steps:\s*(\d+)", notes, re.I)
+        re_notes_steps = re.search(STEPS_REGEX, notes, re.I)
         steps = int(re_notes_steps.group(1).strip()) if re_notes_steps else DEFAULT_STEPS
         # build clip
-        re_notes_clip = re.search(r"clip:\s*(-?\s*\d+)", notes, re.I)
+        re_notes_clip = re.search(CLIP_REGEX, notes, re.I)
         clip = int(re_notes_clip.group(1).strip()) if re_notes_clip else DEFAULT_CLIP
         # build sampler
-        re_notes_sampler = re.search(r"sampler:\s*([\w\.\-_]+)", notes, re.I)
+        re_notes_sampler = re.search(SAMPLER_REGEX, notes, re.I)
         sampler = re_notes_sampler.group(1).strip() if re_notes_sampler else DEFAULT_SAMPLER
         # build scheduler
-        re_notes_scheduler = re.search(r"scheduler:\s*([\w\.\-_]+)", notes, re.I)
+        re_notes_scheduler = re.search(SCHEDULER_REGEX, notes, re.I)
         scheduler = re_notes_scheduler.group(1).strip() if re_notes_scheduler else DEFAULT_SCHEDULER
         # build lora base
-        re_notes_lora_base = re.search(r"lora[_\-\s]*base:\s*([\w\.\-_]+)", notes, re.I)
+        re_notes_lora_base = re.search(LORA_BASE_REGEX, notes, re.I)
         lora_base = re_notes_lora_base.group(1).strip() if re_notes_lora_base else DEFAULT_LORA_BASE
         previewPrompOptions = GeneratePreviewsOptions(
             positive,

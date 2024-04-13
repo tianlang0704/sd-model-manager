@@ -122,7 +122,25 @@ async def show_loras(request):
 
         return web.json_response(resp, dumps=simplejson.dumps)
 
+@routes.delete("/api/v1/lora/{id_or_list}")
+async def delete_lora(request):
+    id_or_list = request.match_info.get("id_or_list", None)
+    if id_or_list is None:
+        return web.json_response({"message": "No LoRA ID provided"}, status=404)
 
+    async with request.app["sdmm_db"].AsyncSession() as s:
+        query = select(LoRAModel).filter(LoRAModel.id.in_(id_or_list.split(",")))
+        query = query.options(selectin_polymorphic(SDModel, [LoRAModel]))
+        rows = (await s.execute(query)).all()
+        if rows is None:
+            return web.json_response(
+                {"message": f"LoRA not found: {id_or_list}"}, status=404
+            )
+        for row in rows:
+            await s.delete(row[0])
+        await s.commit()
+        return web.json_response({"status": "ok"})
+    
 @routes.patch("/api/v1/lora/{id}")
 async def update_lora(request):
     model_id = request.match_info.get("id", None)

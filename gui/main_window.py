@@ -218,6 +218,28 @@ class MainWindow(wx.Frame):
         dialog.CenterOnParent(wx.BOTH)
         await wxasync.AsyncShowDialogModal(dialog)
 
+    async def OnRemoveData(self, evt):
+        selection = self.results_panel.get_selection()
+        if len(selection) == 0:
+            return
+        targetNameList = [item["filename"] for item in selection]
+        targetIdList = [item["id"] for item in selection]
+        filenameStr = "\n".join(targetNameList)
+        dlg = wx.MessageDialog(
+            self.app.frame,
+            f"Remove data for model:\n{filenameStr}\nThis operation will remove all data saved (not the model and preview image) and is not reversible. Are you sure you want to continue?",
+            "Comfirm Delete",
+            wx.YES_NO | wx.ICON_QUESTION,
+        )
+        dlg.SetYesNoLabels("Yes", "Cancel")
+        result = await wxasync.AsyncShowDialogModal(dlg)
+        if result == wx.ID_NO:
+            return
+        result = await self.app.api.remove_lora(targetIdList)
+        print(result)
+        await self.results_panel.search(self.results_panel.searchBox.GetValue(), only_update_result=True)
+
+
     async def SubItemSelected(self, key, items):
         selected = len(items) > 0
         self.toolbar.EnableTool(wx.ID_SAVE, False)
@@ -228,5 +250,4 @@ class MainWindow(wx.Frame):
     async def search(self, query):
         self.statusbar.SetStatusText("Searching...")
         await self.results_panel.search(query)
-        results = self.results_panel.results
-        self.pub.publish(Key("search_finished"), results)
+        self.pub.publish(Key("search_finished"), self.results_panel.results)

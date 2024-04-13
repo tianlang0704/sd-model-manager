@@ -67,7 +67,11 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
         for col, column in enumerate(COLUMNS):
             self.InsertColumn(col, column.name)
             self.SetColumnShown(col, column.is_visible)
-        self.resize_columns()
+            if column.width is not None:
+                width = self.Parent.FromDIP(column.width)
+            else:
+                width = wx.LIST_AUTOSIZE_USEHEADER
+            self.SetColumnWidth(col, width)
 
     async def SubTreeFilterChanged(self, key, path):
         self.pub.publish(Key("item_selected"), [])
@@ -88,12 +92,15 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
 
     def set_results(self, results):
         self.results = results
-        self.filter = None
-        self.values = {}
 
-        self.refresh_filter()
+    def select_default(self):
+        if len(self.filtered) <= 0:
+            return
+        self.Select(0, 1)
+        self.Focus(0)
+        self.pub.publish(Key("item_selected"), self.get_selection())
 
-    def refresh_filter(self):
+    def refresh_filtered_data(self):
         data = self.results["data"]
         self.filtered = []
         if self.filter is None:
@@ -103,20 +110,9 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
                 p = d["filepath"]
                 if p.startswith(self.filter):
                     self.filtered.append(d)
-        self.refresh_text()
-
-    def resize_columns(self):
-        for idx, column in enumerate(COLUMNS):
-            if column.width is not None:
-                width = self.Parent.FromDIP(column.width)
-            else:
-                width = wx.LIST_AUTOSIZE_USEHEADER
-            self.SetColumnWidth(idx, width)
-        self.Arrange(ultimatelistctrl.ULC_ALIGN_DEFAULT)
-
-    def refresh_text(self):
+        
+    def refresh_text_view(self):
         self.app.frame.statusbar.SetStatusText("Loading results...")
-
         self.values = {}
         for i, data in enumerate(self.filtered):
             self.refresh_one_value(data, i)
@@ -125,7 +121,6 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
         count = len(self.filtered)
         self.SetItemCount(count)
         self.Refresh()
-
         self.app.frame.statusbar.SetStatusText(f"Done. ({count} records)")
 
     def refresh_one_value(self, data, index = None):
@@ -456,34 +451,28 @@ class ResultsNotebook(wx.Panel):
     async def SubTreeFilterChanged(self, key, path):
         list = self.results_panel.list
         list.filter = path
-        list.refresh_filter()
-
-        if len(list.filtered) > 0:
-            list.Select(0, 1)
-            list.Focus(0)
-            self.pub.publish(Key("item_selected"), list.get_selection())
+        list.refresh_filtered_data()
+        list.refresh_text_view()
+        list.select_default()
 
         self.results_gallery.needs_update = True
         if self.notebook.GetSelection() == 1:
             self.results_gallery.SetThumbs(list.filtered)
 
-    async def search(self, query):
+    async def search(self, query, only_update_result=False):
         self.pub.publish(Key("item_selected"), [])
-        self.results = {}
-
+        self.results = await self.app.api.get_loras(query)
         try_load_image.cache_clear()
 
         list = self.results_panel.list
         list.DeleteAllItems()
         list.Arrange(ultimatelistctrl.ULC_ALIGN_DEFAULT)
-
-        self.results = await self.app.api.get_loras(query)
         list.set_results(self.results)
-
-        if len(list.filtered) > 0:
-            list.Select(0, 1)
-            list.Focus(0)
-            self.pub.publish(Key("item_selected"), list.get_selection())
+        if not only_update_result:
+            list.filter = None
+        list.refresh_filtered_data()
+        list.refresh_text_view()
+        list.select_default()
 
         self.results_gallery.needs_update = True
         if self.notebook.GetSelection() == 1:

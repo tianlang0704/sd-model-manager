@@ -88,7 +88,6 @@ class DirTreePanel(wx.Panel):
             roots.add(result["root_path"])
 
         for root in list(roots):
-            # self.roots.append(self.dir_tree.AddRoot(root))
             self.roots.append(self.dir_tree.AppendItem(self.dummy_root, root))
 
         def find(root, name):

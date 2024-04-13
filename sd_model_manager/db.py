@@ -160,7 +160,7 @@ class DB:
             await conn.run_sync(Base.metadata.create_all)
 
         self.AsyncSession = async_sessionmaker(bind=self.engine)
-
+        
         async with self.AsyncSession() as session:
             stmt = select(func.count()).select_from(SDModel)
             count = (await session.execute(stmt)).scalar()

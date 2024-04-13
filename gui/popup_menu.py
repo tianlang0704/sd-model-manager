@@ -85,16 +85,6 @@ def copy_item_value(target, event, app):
     copy_to_clipboard(value, app)
 
 
-def copy_top_n_tags(tag_freq, app, n=None):
-    totals = utils.combine_tag_freq(tag_freq)
-    sort = list(sorted(totals.items(), key=lambda p: p[1], reverse=True))
-    tags = [p[0] for p in sort]
-    if n is not None:
-        tags = tags[:n]
-    s = ", ".join(tags)
-    copy_to_clipboard(s, app)
-
-
 def copy_to_clipboard(value, app=None):
     if wx.TheClipboard.Open():
         wx.TheClipboard.SetData(wx.TextDataObject(str(value)))
@@ -127,7 +117,7 @@ def create_popup_menu_for_item(target, evt, app):
     icon_copy = utils.load_bitmap("images/icons/16/page_copy.png")
     icon_folder_go = utils.load_bitmap("images/icons/16/folder_go.png")
     icon_picture_add = utils.load_bitmap("images/icons/16/picture_add.png")
-
+    icon_picture_delete = utils.load_bitmap("images/icons/16/picture_delete.png")
     items = [
         PopupMenuItem("Open Folder", open_folder, icon=icon_folder_go),
         PopupMenuItem("Copy Value", lambda t, e: copy_item_value(t, e, app)),
@@ -158,41 +148,12 @@ def create_popup_menu_for_item(target, evt, app):
             enabled=image_prompt is not None,
             icon=icon_copy,
         ),
+        PopupMenuSeparator(),
         PopupMenuItem(
-            "Image Tags",
-            lambda t, e: copy_to_clipboard(image_tags, app),
-            enabled=image_tags is not None,
-            icon=icon_copy,
-        ),
-        PopupMenuItem(
-            "Image Neg. Tags",
-            lambda t, e: copy_to_clipboard(image_neg_tags, app),
-            enabled=image_neg_tags is not None,
-            icon=icon_copy,
-        ),
-        PopupMenuItem(
-            "Top 10 Tags",
-            lambda t, e: copy_top_n_tags(tag_freq, app, 10),
-            enabled=tag_freq is not None,
-            icon=icon_copy,
-        ),
-        PopupMenuItem(
-            "Top 20 Tags",
-            lambda t, e: copy_top_n_tags(tag_freq, app, 20),
-            enabled=tag_freq is not None,
-            icon=icon_copy,
-        ),
-        PopupMenuItem(
-            "Top 50 Tags",
-            lambda t, e: copy_top_n_tags(tag_freq, app, 50),
-            enabled=tag_freq is not None,
-            icon=icon_copy,
-        ),
-        PopupMenuItem(
-            "All Tags",
-            lambda t, e: copy_top_n_tags(tag_freq, app),
-            enabled=tag_freq is not None,
-            icon=icon_copy,
+            "Remove Data",
+            lambda t, e: app.frame.OnRemoveData(None),
+            is_async=True,
+            icon=icon_picture_delete,
         ),
     ]
     items = [i for i in items if i]

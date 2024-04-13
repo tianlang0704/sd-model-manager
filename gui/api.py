@@ -54,7 +54,14 @@ class ModelManagerAPI:
         data = data.encode("utf-8")
         with urllib.request.urlopen(req, data=data) as response:
             return response.read()
-
+    
+    async def remove_lora(self, id_or_list):
+        if isinstance(id_or_list, list):
+            id_or_list = ",".join(map(str, id_or_list))
+        async with self.client.delete(self.base_url() + f"/api/v1/lora/{id_or_list}") as response:
+            if response.status != 200:
+                print(await response.text())
+            return await response.json()
 
 # TODO make async
 class ComfyAPI:

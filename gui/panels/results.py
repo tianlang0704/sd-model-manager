@@ -123,9 +123,11 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
         self.Refresh()
         self.app.frame.statusbar.SetStatusText(f"Done. ({count} records)")
 
+    def index_from_id(self, id):
+        return next((i for i, element in enumerate(self.filtered) if element["id"] == id), None)
     def refresh_one_value(self, data, index = None):
         if index is None:
-            index = next((i for i, element in enumerate(self.filtered) if element["id"] == data["id"]), None)
+            index = self.index_from_id(data["id"])
         if index is None:
             return
         for col, column in enumerate(COLUMNS):
@@ -306,8 +308,8 @@ class ResultsGallery(wx.Panel):
 
         list.ClearSelection()
         for item in selected:
-            list.Select(item["_index"], 1)
-        # list.Focus(item["_index"])
+            list_index = list.index_from_id(item["id"])
+            list.Select(list_index, 1)
         self.pub.publish(Key("item_selected"), list.get_selection())
 
     async def OnThumbnailActivated(self, evt):

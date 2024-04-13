@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 from aiohttp import web
 from sqlalchemy import create_engine, select, or_
 from sqlalchemy.orm import Session, selectinload, selectin_polymorphic
@@ -26,6 +28,17 @@ def paging_to_json(paging, limit):
 
 routes = web.RouteTableDef()
 
+@routes.get("/api/v1/open_manager")
+async def open_manager(request):
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    client_path = os.path.abspath(os.path.join(current_dir, "..", "..", "client.py"))
+    msg = "ok"
+    cmd = f"{sys.executable} {client_path} -m comfyui"
+    try:
+        p = subprocess.Popen(cmd)
+    except Exception as e:
+        msg = str(e)
+    return web.json_response({"msg": msg})
 
 @routes.get("/api/v1/preview_image/{id}")
 async def show_preview_image(request):

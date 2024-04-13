@@ -1,5 +1,12 @@
 #!/usr/bin/env python
 
+import os
+cwd = os.path.dirname(os.path.realpath(__file__))
+if os.getcwd() != cwd:
+    os.chdir(cwd)
+import sys
+sys.path.insert(0, cwd)
+
 import sys
 import ctypes
 import asyncio
@@ -76,6 +83,8 @@ def exception_handler(exception_type, exception_value, exception_traceback):
 async def main():
     global app
     config = parser.parse_args()
+    config.listen = config.listen.strip()
+    config.mode = config.mode.strip()
     use_internal_server = config.mode != "noserver" and config.mode != "comfyui"
     is_comfyui = config.mode == "comfyui"
 

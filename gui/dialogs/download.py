@@ -56,7 +56,13 @@ STEPS_REGEX = r"steps:\s*(\d+)\n*"
 CLIP_REGEX = r"clip:\s*(-?\s*\d+)\n*"
 SAMPLER_REGEX = r"sampler:\s*([\w\.\-_]+)\n*"
 SCHEDULER_REGEX = r"scheduler:\s*([\w\.\-_]+)\n*"
-LORA_BASE_REGEX = r"lora[_\-\s]*base:\s*([\w\.\-_]+)\n*"
+LORA_BASE_REGEX = r"lora[_\-\s]*base:\s*([\w\.\-_ ]+)\n*"
+
+MODEL_SD_15_TAG = "sd-1.5"
+MODEL_SD_XL_TAG = "sd-xl"
+MODEL_SD_TURBO_TAG = "sd-turbo"
+MODEL_SD_MERGE_TURBO_TAG = "sd-merge-turbo"
+MODEL_SD_LORA_TAG = "sd-lora"
 
 def load_prompt(name):
     with open(
@@ -99,11 +105,11 @@ class PreviewPromptData:
         if self.tags:
             firstTag = self.tags.split(",")[0].strip()
         keywordToFunc = {
-            "sd-1.5": self.to_prompt_default,
-            "sd-xl": self.to_prompt_xl,
-            "sd-turbo": self.to_prompt_turbo,
-            "sd-merge-turbo": self.to_prompt_merge_turbo,
-            "sd-lora": self.to_prompt_lora,
+            MODEL_SD_15_TAG: self.to_prompt_default,
+            MODEL_SD_XL_TAG: self.to_prompt_xl,
+            MODEL_SD_TURBO_TAG: self.to_prompt_turbo,
+            MODEL_SD_MERGE_TURBO_TAG: self.to_prompt_merge_turbo,
+            MODEL_SD_LORA_TAG: self.to_prompt_lora,
         }
         for keyword in keywordToFunc:
             if keyword == firstTag:
@@ -182,18 +188,51 @@ class PreviewPromptData:
         return prompt
 
     def to_hr_prompt(self, image):
-        prompt = load_prompt("hr.json")
+        firstTag = ""
+        if self.tags:
+            firstTag = self.tags.split(",")[0].strip()
+        keywordToFunc = {
+            MODEL_SD_15_TAG: self.to_prompt_default_hr,
+            # MODEL_SD_XL_TAG: self.to_prompt_xl_hr,
+            # MODEL_SD_TURBO_TAG: self.to_prompt_turbo_hr,
+            # MODEL_SD_MERGE_TURBO_TAG: self.to_prompt_merge_turbo_hr,
+            MODEL_SD_LORA_TAG: self.to_prompt_lora_hr,
+        }
+        for keyword in keywordToFunc:
+            if keyword == firstTag:
+                return keywordToFunc[keyword](image)
+        return self.to_prompt_default_hr(image)
+
+    def to_prompt_default_hr(self, image):
+        prompt = load_prompt("default-hr.json")
         filename = image["filename"]
         prompt["11"]["inputs"]["seed"] = self.seed
         prompt["11"]["inputs"]["denoise"] = self.denoise
+        prompt["11"]["inputs"]["cfg"] = self.cfg
+        prompt["11"]["inputs"]["steps"] = self.steps
+        prompt["11"]["inputs"]["sampler_name"] = self.sampler
+        prompt["11"]["inputs"]["scheduler"] = self.scheduler
         prompt["16"]["inputs"]["ckpt_name"] = self.checkpoint
-        prompt["17"]["inputs"]["vae_name"] = self.vae
         prompt["6"]["inputs"]["text"] = self.positive
         prompt["7"]["inputs"]["text"] = self.negative
         prompt["18"]["inputs"]["image"] = f"{filename} [output]"
         return prompt
-        
-
+    
+    def to_prompt_lora_hr(self, image):
+        prompt = load_prompt("lora-hr.json")
+        filename = image["filename"]
+        prompt["11"]["inputs"]["seed"] = self.seed
+        prompt["11"]["inputs"]["denoise"] = self.denoise
+        prompt["11"]["inputs"]["cfg"] = self.cfg
+        prompt["11"]["inputs"]["steps"] = self.steps
+        prompt["11"]["inputs"]["sampler_name"] = self.sampler
+        prompt["11"]["inputs"]["scheduler"] = self.scheduler
+        prompt["6"]["inputs"]["text"] = self.positive
+        prompt["7"]["inputs"]["text"] = self.negative
+        prompt["18"]["inputs"]["image"] = f"{filename} [output]"
+        prompt["16"]["inputs"]["ckpt_name"] = self.lora_base
+        prompt["22"]["inputs"]["lora_name"] = self.checkpoint
+        return prompt
 
 class CancelException(Exception):
     pass
@@ -406,7 +445,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         sizerRightAfter4.Add(self.scheduler, proportion=1, flag=wx.ALL, border=5)
 
         sizerRightAfter5 = wx.BoxSizer(wx.HORIZONTAL)
-        sizerRightAfter5.Add(
+        lora_base_label = sizerRightAfter5.Add(
             wx.StaticText(self, wx.ID_ANY, label="Lora Base"),
             proportion=0,
             border=5,
@@ -415,6 +454,12 @@ class PreviewGeneratorDialog(wx.Dialog):
         choices = ["PerfectWorld.safetensors", "astranime_V6.safetensors", "AOM3.safetensors", "Anything-V3.0-pruned-fp16.ckpt", "v1-5-pruned.ckpt"]
         self.lora_base = wx.ComboBox(self, id=wx.ID_ANY, value=self.preview_options.lora_base, choices=choices)
         sizerRightAfter5.Add(self.lora_base, proportion=1, flag=wx.ALL, border=5)
+        show_lora_base = False
+        firstTagList = [item["tags"].split(",")[0].strip() for item in self.items]
+        if MODEL_SD_LORA_TAG in firstTagList:
+            show_lora_base = True
+        lora_base_label.Show(show_lora_base)
+        self.lora_base.Show(show_lora_base)
 
 
         sizerRight = wx.StaticBoxSizer(wx.VERTICAL, self, label="Parameters")

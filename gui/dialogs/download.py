@@ -23,7 +23,7 @@ from gui.api import ComfyAPI, ModelManagerAPI
 from gui.utils import PROGRAM_ROOT, combine_tag_freq
 from gui.comfy_executor import ComfyExecutor
 from gui.image_panel import ImagePanel
-from gui.async_utils import AsyncShowDialogModal, on_close
+from gui.async_utils import AsyncShowDialog, AsyncShowDialogModal, on_close
 
 CHECKPOINTS = [
     "Based64Mix-v3",
@@ -44,7 +44,7 @@ DEFAULT_CFG = 8
 DEFAULT_STEPS = 20
 DEFAULT_CLIP = -1
 DEFAULT_SAMPLER = "euler_ancestral"
-DEFAULT_SCHEDULER = "karras"
+DEFAULT_SCHEDULER = "normal"
 DEFAULT_LORA_BASE = "AOM3.safetensors"
 
 def load_prompt(name):
@@ -833,6 +833,7 @@ def any_have_previews(items):
 
     return count
 
+preview_dialog = None
 async def run(app, items, op = None):
     if not items:
         return
@@ -852,6 +853,11 @@ async def run(app, items, op = None):
                 return
             op = "replace" if result == wx.ID_YES else "append"
 
-    dialog = PreviewGeneratorDialog(app.frame, app, items, op)
-    dialog.Center()
-    result = await AsyncShowDialogModal(dialog)
+    global preview_dialog
+    if preview_dialog is not None:
+        preview_dialog.Destroy()
+        preview_dialog = None
+
+    preview_dialog = PreviewGeneratorDialog(app.frame, app, items, op)
+    preview_dialog.Center()
+    await AsyncShowDialog(preview_dialog)

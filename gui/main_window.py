@@ -100,7 +100,7 @@ class MainWindow(wx.Frame):
         self.accel_tbl = wx.AcceleratorTable(
             [
                 (wx.ACCEL_CTRL, ord("S"), wx.ID_SAVE),
-                (wx.ACCEL_CTRL, ord("D"), wx.ID_CLEAR),
+                (wx.ACCEL_CTRL, ord("Z"), wx.ID_CLEAR),
                 (wx.ACCEL_CTRL, ord("Q"), ids.ID_GENERATE_PREVIEWS),
             ]
         )

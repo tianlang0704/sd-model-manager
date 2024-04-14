@@ -310,6 +310,15 @@ def find_preview_images(basepath):
 KEY_POSITIVE = "processed_positive"
 KEY_NEGATIVE = "processed_negative"
 
+#file drop target
+class FileDropTarget(wx.FileDropTarget):
+    def __init__(self, window):
+        wx.FileDropTarget.__init__(self)
+        self.window = window
+
+    def OnDropFiles(self, x, y, filenames):
+        return self.window.OnDropFiles(x, y, filenames)
+
 class PreviewGeneratorDialog(wx.Dialog):
     def __init__(self, parent, app, items, duplicate_op):
         main_name = items[0]["filename"] if items and len(items) > 0 else ""
@@ -320,7 +329,6 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.app = app
         self.comfy_api = ComfyAPI()
         self.duplicate_op = duplicate_op  # "replace", "append"
-
         self.items = items
         self.preview_options = self.item_to_preview_options(items)
         self.result = None
@@ -334,6 +342,8 @@ class PreviewGeneratorDialog(wx.Dialog):
 
         utils.set_icons(self)
         self.autogen = False
+
+        self.SetDropTarget(FileDropTarget(self))
 
         # Parameter controls
         self.text_prompt_before = wx.TextCtrl(
@@ -364,8 +374,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             images = find_preview_images(basepath)
             if len(images) > 0:
                 preview_image = images[0]
-                self.image_panel.LoadImageFrompath(preview_image)
-                self.last_output = preview_image
+                self.set_preview_image(preview_image)
 
         self.button_save_notes = wx.Button(self, wx.ID_SAVE, "Save Notes")
         self.button_regenerate = wx.Button(self, wx.ID_HELP, "Generate")
@@ -610,6 +619,10 @@ class PreviewGeneratorDialog(wx.Dialog):
 
         self.SetSizerAndFit(wrapper)
 
+    def set_preview_image(self, image):
+        self.image_panel.LoadImageFrompath(image)
+        self.last_output = image
+
     async def save_preview_image(self, item, result):
         self.app.SetStatusText("Saving preview...")
         self.status_text.SetLabel("Saving preview...")
@@ -656,6 +669,13 @@ class PreviewGeneratorDialog(wx.Dialog):
         await self.app.frame.results_panel.refresh_one_item(item)
 
         self.app.SetStatusText(f"Saved preview to {path}")
+    
+    def OnDropFiles(self, x, y, filenames):
+        if len(filenames) <= 0:
+            return
+        filepath = filenames[0]
+        self.set_preview_image(filepath)
+        return True
 
     async def OnOK(self, evt):
         self.button_regenerate.Disable()

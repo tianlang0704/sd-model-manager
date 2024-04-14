@@ -59,22 +59,68 @@ class ImagePanel(wx.Panel):
 
         super().__init__(parent, id, pos, size, style=style)
 
+        self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
+        self.Bind(wx.EVT_LEFT_UP, self.OnLeftUp)
+        self.Bind(wx.EVT_MOTION, self.OnMotion)
+        self.Bind(wx.EVT_LEFT_DCLICK, self.OnLeftDClick)
         self.bmpImage = wx.StaticBitmap(self, wx.ID_ANY)
         self.bmpImage.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
+        self.bmpImage.Bind(wx.EVT_LEFT_UP, self.OnLeftUp)
+        self.bmpImage.Bind(wx.EVT_MOTION, self.OnMotion)
+        self.bmpImage.Bind(wx.EVT_LEFT_DCLICK, self.OnLeftDClick)
         self.sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.sizer.Add(self.bmpImage, 1, wx.EXPAND, 0)
         self.SetSizer(self.sizer)
 
         self.image = None  # loaded image in image format
         self.aspect = None  # loaded image aspect ratio
+        self.moving = False  # flag to indicate dragging
         self.zoom = 1.0  # zoom factor
         self.blank = wx.Bitmap(1, 1)
+        self.left_down_pos = wx.Point(0, 0)
+        self.image_pos = wx.Point(0, 0)
 
         self.Bind(wx.EVT_SIZE, self.OnSize)
         self.Bind(wx.EVT_MOUSEWHEEL, self.OnMouseWheel)
 
+    def OnLeftDClick(self, event):
+        self.zoom = 1
+        self.ScaleToFit()
+        self.Layout()
+
     def OnLeftDown(self, event):
         """Start dragging"""
+        self.left_down_pos = self.ScreenToClient(wx.GetMousePosition())
+        self.image_pos = self.bmpImage.GetPosition()
+        m = wx.GetMouseState()
+        if m.ControlDown():
+            self.moving = True
+        else:
+            self.StartDragAndDrop()
+
+    def OnLeftUp(self, event):
+        """Stop dragging"""
+        self.moving = False
+
+    def OnMotion(self, event):
+        """Move image"""
+        if self.moving:
+            m = wx.GetMouseState()
+            if m.ControlDown() and m.LeftIsDown():
+                self.MoveImage()
+            else:
+                self.moving = False
+    
+    def MoveImage(self):
+        """Move image"""
+        if self.image is None:
+            return
+        # record offset
+        pos = self.ScreenToClient(wx.GetMousePosition())
+        x, y = pos.x - self.left_down_pos.x + self.image_pos.x, pos.y - self.left_down_pos.y + self.image_pos.y
+        self.bmpImage.SetPosition((x, y))
+
+    def StartDragAndDrop(self):
         if not self.image:
             return
         data = ""
@@ -160,4 +206,4 @@ class ImagePanel(wx.Panel):
             # scale the image to new dimensions and display
             image = self.image.resize((nw, nh), resample=Image.BICUBIC)
             self.bmpImage.SetBitmap(wx.BitmapFromBuffer(nw, nh, image.tobytes()))
-            self.Layout()
+            # self.Layout()

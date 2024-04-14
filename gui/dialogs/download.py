@@ -44,6 +44,7 @@ DEFAULT_UPSCALE_DENOISE = 0.6
 DEFAULT_CFG = 8
 DEFAULT_STEPS = 20
 DEFAULT_CLIP = -1
+DEFAULT_UPSCALE_FACTOR = 1.5
 DEFAULT_SAMPLER = "euler_ancestral"
 DEFAULT_SCHEDULER = "normal"
 DEFAULT_LORA_BASE = "AOM3.safetensors"
@@ -56,6 +57,7 @@ UPSCALE_DENOISE_REGEX = r"upscale.*denoise:\s*(\d+\s*.?\s*\d*)\n*"
 CFG_REGEX = r"cfg:\s*(\d+)\n*"
 STEPS_REGEX = r"steps:\s*(\d+)\n*"
 CLIP_REGEX = r"clip:\s*(-?\s*\d+)\n*"
+UPSCALE_FACTOR_REGEX = r"upscale.*factor:\s*(\d+\s*.?\s*\d*)\n*"
 SAMPLER_REGEX = r"sampler:\s*([\w\.\-_]+)\n*"
 SCHEDULER_REGEX = r"scheduler:\s*([\w\.\-_]+)\n*"
 LORA_BASE_REGEX = r"lora.*base:\s*([\w\.\-_ ]+)\n*"
@@ -85,6 +87,7 @@ class GeneratePreviewsOptions:
     cfg: int
     steps: int
     clip: int
+    upscale_factor: float
     sampler: str
     scheduler: str
     lora_base: str
@@ -101,6 +104,7 @@ class PreviewPromptData:
     cfg: int
     steps: int
     clip: int
+    upscale_factor: float
     sampler: str
     scheduler: str
     lora_base: str
@@ -225,6 +229,7 @@ class PreviewPromptData:
         prompt["16"]["inputs"]["ckpt_name"] = self.checkpoint
         prompt["6"]["inputs"]["text"] = self.positive
         prompt["7"]["inputs"]["text"] = self.negative
+        prompt["20"]["inputs"]["scale_by"] = self.upscale_factor
         prompt["18"]["inputs"]["image"] = f"{filename} [output]"
         return prompt
     
@@ -238,9 +243,10 @@ class PreviewPromptData:
         prompt["11"]["inputs"]["scheduler"] = self.scheduler
         prompt["6"]["inputs"]["text"] = self.positive
         prompt["7"]["inputs"]["text"] = self.negative
-        prompt["18"]["inputs"]["image"] = f"{filename} [output]"
         prompt["16"]["inputs"]["ckpt_name"] = self.lora_base
         prompt["22"]["inputs"]["lora_name"] = self.checkpoint
+        prompt["20"]["inputs"]["scale_by"] = self.upscale_factor
+        prompt["18"]["inputs"]["image"] = f"{filename} [output]"
         return prompt
 
     def to_prompt_xl_hr(self, filename):
@@ -254,6 +260,7 @@ class PreviewPromptData:
         prompt["12"]["inputs"]["ckpt_name"] = self.checkpoint
         prompt["15"]["inputs"]["text"] = self.positive
         prompt["16"]["inputs"]["text"] = self.negative
+        prompt["52"]["inputs"]["scale_by"] = self.upscale_factor
         prompt["24"]["inputs"]["image"] = f"{filename} [output]"
         return prompt
     
@@ -267,6 +274,7 @@ class PreviewPromptData:
         prompt["20"]["inputs"]["ckpt_name"] = self.checkpoint
         prompt["6"]["inputs"]["text"] = self.positive
         prompt["7"]["inputs"]["text"] = self.negative
+        prompt["42"]["inputs"]["scale_by"] = self.upscale_factor
         prompt["38"]["inputs"]["image"] = f"{filename} [output]"
         return prompt
     
@@ -282,6 +290,7 @@ class PreviewPromptData:
         prompt["1"]["inputs"]["ckpt_name"] = self.checkpoint
         prompt["3"]["inputs"]["text"] = self.positive
         prompt["4"]["inputs"]["text"] = self.negative
+        prompt["13"]["inputs"]["scale_by"] = self.upscale_factor
         prompt["10"]["inputs"]["image"] = f"{filename} [output]"
         return prompt
 class CancelException(Exception):
@@ -536,6 +545,27 @@ class PreviewGeneratorDialog(wx.Dialog):
 
         sizerRightAfter4 = wx.BoxSizer(wx.HORIZONTAL)
         sizerRightAfter4.Add(
+            wx.StaticText(self, wx.ID_ANY, label="Upscale Factor"),
+            proportion=0,
+            border=5,
+            flag=wx.ALL,
+        )
+        self.spinner_upscale_factor = floatspin.FloatSpin(
+            self,
+            id=wx.ID_ANY,
+            min_val=0,
+            max_val=10,
+            increment=0.1,
+            value=self.preview_options.upscale_factor,
+            agwStyle=floatspin.FS_LEFT,
+            # size=self.Parent.FromDIP(wx.Size(140, 25)),
+        )
+        self.spinner_upscale_factor.SetFormat("%f")
+        self.spinner_upscale_factor.SetDigits(2)
+        sizerRightAfter4.Add(self.spinner_upscale_factor, proportion=1, flag=wx.ALL, border=5)
+
+        sizerRightAfter5 = wx.BoxSizer(wx.HORIZONTAL)
+        sizerRightAfter5.Add(
             wx.StaticText(self, wx.ID_ANY, label="Sampler"),
             proportion=0,
             border=5,
@@ -543,10 +573,10 @@ class PreviewGeneratorDialog(wx.Dialog):
         )
         choices = ["euler_ancestral", "dpmpp_2m"]
         self.sampler = wx.ComboBox(self, id=wx.ID_ANY, value=self.preview_options.sampler, choices=choices)
-        sizerRightAfter4.Add(self.sampler, proportion=1, flag=wx.ALL, border=5)
+        sizerRightAfter5.Add(self.sampler, proportion=1, flag=wx.ALL, border=5)
 
-        sizerRightAfter5 = wx.BoxSizer(wx.HORIZONTAL)
-        scheduler_label = sizerRightAfter5.Add(
+        sizerRightAfter6 = wx.BoxSizer(wx.HORIZONTAL)
+        scheduler_label = sizerRightAfter6.Add(
             wx.StaticText(self, wx.ID_ANY, label="Scheduler"),
             proportion=0,
             border=5,
@@ -554,7 +584,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         )
         choices = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform"]
         self.scheduler = wx.ComboBox(self, id=wx.ID_ANY, value=self.preview_options.scheduler, choices=choices)
-        sizerRightAfter5.Add(self.scheduler, proportion=1, flag=wx.ALL, border=5)
+        sizerRightAfter6.Add(self.scheduler, proportion=1, flag=wx.ALL, border=5)
         firstTagList = self.get_first_tag_list()
         show_scheduler = False
         if sum(1 for tag in firstTagList if tag != MODEL_SD_TURBO_TAG) > 0:
@@ -562,8 +592,8 @@ class PreviewGeneratorDialog(wx.Dialog):
         scheduler_label.Show(show_scheduler)
         self.scheduler.Show(show_scheduler)
 
-        sizerRightAfter6 = wx.BoxSizer(wx.HORIZONTAL)
-        lora_base_label = sizerRightAfter6.Add(
+        sizerRightAfter7 = wx.BoxSizer(wx.HORIZONTAL)
+        lora_base_label = sizerRightAfter7.Add(
             wx.StaticText(self, wx.ID_ANY, label="Lora Base"),
             proportion=0,
             border=5,
@@ -577,7 +607,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             choices=choices,
             size = self.Parent.FromDIP(wx.Size(150, 25)),
         )
-        sizerRightAfter6.Add(self.lora_base, proportion=1, flag=wx.ALL, border=5)
+        sizerRightAfter7.Add(self.lora_base, proportion=1, flag=wx.ALL, border=5)
         firstTagList = self.get_first_tag_list()
         show_lora_base = False
         if MODEL_SD_LORA_TAG in firstTagList:
@@ -597,6 +627,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         sizerRight.Add(sizerRightAfter4, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfter5, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfter6, proportion=1, flag=wx.ALL)
+        sizerRight.Add(sizerRightAfter7, proportion=1, flag=wx.ALL)
         sizerRight.Add(
             self.models_text,
             proportion=0,
@@ -782,6 +813,12 @@ class PreviewGeneratorDialog(wx.Dialog):
             else:
                 insert_str += f"clip: {clip}\n"
 
+        upscale_factor = self.spinner_upscale_factor.GetValue()
+        if re.search(UPSCALE_FACTOR_REGEX, notes, re.I):
+            notes = re.sub(UPSCALE_FACTOR_REGEX, f"upscale factor: {upscale_factor}\n", notes, flags = re.I)
+        else:
+            insert_str += f"upscale factor: {upscale_factor}\n"
+
         sampler = self.sampler.GetValue()
         if re.search(SAMPLER_REGEX, notes, re.I):
             notes = re.sub(SAMPLER_REGEX, f"sampler: {sampler}\n", notes, flags = re.I)
@@ -875,6 +912,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             int(self.spinner_cfg.GetValue()),
             int(self.spinner_steps.GetValue()),
             int(self.spinner_clip.GetValue()),
+            float(self.spinner_upscale_factor.GetValue()),
             self.sampler.GetValue(),
             self.scheduler.GetValue(),
             self.lora_base.GetValue(),
@@ -894,6 +932,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         cfg = inputOptions.cfg if inputOptions.cfg != self.preview_options.cfg else itemOptions.cfg
         steps = inputOptions.steps if inputOptions.steps != self.preview_options.steps else itemOptions.steps
         clip = inputOptions.clip if inputOptions.clip != self.preview_options.clip else itemOptions.clip
+        upscale_factor = inputOptions.upscale_factor if inputOptions.upscale_factor != self.preview_options.upscale_factor else itemOptions.upscale_factor
         sampler = inputOptions.sampler if inputOptions.sampler != self.preview_options.sampler else itemOptions.sampler
         scheduler = inputOptions.scheduler if inputOptions.scheduler != self.preview_options.scheduler else itemOptions.scheduler
         loraBase = inputOptions.lora_base if inputOptions.lora_base != self.preview_options.lora_base else itemOptions.lora_base
@@ -908,6 +947,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             cfg,
             steps,
             clip,
+            upscale_factor,
             sampler,
             scheduler,
             loraBase,
@@ -1109,6 +1149,9 @@ class PreviewGeneratorDialog(wx.Dialog):
         # build clip
         re_notes_clip = re.search(CLIP_REGEX, notes, re.I)
         clip = int(re_notes_clip.group(1).strip()) if re_notes_clip else DEFAULT_CLIP
+        # build upscale factor
+        re_notes_upscale_factor = re.search(UPSCALE_FACTOR_REGEX, notes, re.I)
+        upscale_factor = float(re_notes_upscale_factor.group(1).strip()) if re_notes_upscale_factor else DEFAULT_UPSCALE_FACTOR
         # build sampler
         re_notes_sampler = re.search(SAMPLER_REGEX, notes, re.I)
         sampler = re_notes_sampler.group(1).strip() if re_notes_sampler else DEFAULT_SAMPLER
@@ -1127,6 +1170,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             cfg,
             steps,
             clip,
+            upscale_factor,
             sampler,
             scheduler,
             lora_base

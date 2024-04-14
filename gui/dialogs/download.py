@@ -51,7 +51,7 @@ DEFAULT_LORA_BASE = "AOM3.safetensors"
 POSITIVE_REGEX = r"positive:(.+)\n*"
 NEGATIVE_REGEX = r"negative:(.+)\n*"
 SEED_REGEX = r"seed:\s*(\-?\s*\d+)\n*"
-DENOISE_REGEX = r"(upscale)?.*denoise:\s*(\d+\s*.?\s*\d*)\n*"
+DENOISE_REGEX = r"(upscale)?.*denoise:\s*(\d+\s*.?\s*\d*)\n*" #workaround for detecting upscale denoise
 UPSCALE_DENOISE_REGEX = r"upscale.*denoise:\s*(\d+\s*.?\s*\d*)\n*"
 CFG_REGEX = r"cfg:\s*(\d+)\n*"
 STEPS_REGEX = r"steps:\s*(\d+)\n*"
@@ -65,6 +65,8 @@ MODEL_SD_XL_TAG = "sd-xl"
 MODEL_SD_TURBO_TAG = "sd-turbo"
 MODEL_SD_MERGE_TURBO_TAG = "sd-merge-turbo"
 MODEL_SD_LORA_TAG = "sd-lora"
+
+SEED_RANDOM_MAX = 2**32
 
 def load_prompt(name):
     with open(
@@ -285,8 +287,8 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.last_output = None
         self.executing_node_id = None
         self.upscaled = False
-        self.last_seed = 0
-        self.last_upscale_seed = 0
+        self.last_seed = -1
+        self.last_upscale_seed = -1
         self.node_text = ""
 
         utils.set_icons(self)
@@ -362,10 +364,23 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.spinner_seed = wx.TextCtrl(
             self, 
             wx.ID_ANY, 
-            value=str(self.preview_options.seed), 
-            # size=self.Parent.FromDIP(wx.Size(140, 25))
+            value = str(self.preview_options.seed), 
+            size = self.Parent.FromDIP(wx.Size(90, 25))
         )
         sizerRightAfter.Add(self.spinner_seed, proportion=1, flag=wx.ALL, border=5)
+
+        self.button_random_seed = wx.Button(self, wx.ID_CDROM, "Random", size = self.Parent.FromDIP(wx.Size(70, 25)))
+        self.Bind(wx.EVT_BUTTON, lambda e:self.spinner_seed.SetValue(str(random.randint(0, SEED_RANDOM_MAX))), id=wx.ID_CDROM)
+        sizerRightAfter.Add(self.button_random_seed, proportion=0, flag=wx.ALL, border=5)
+
+        self.button_last_seed = wx.Button(self, wx.ID_ADD, "Last", size = self.Parent.FromDIP(wx.Size(50, 25)))
+        def on_last_seed(e):
+            value = self.last_upscale_seed if self.upscaled else self.last_seed
+            if value == -1:
+                return
+            self.spinner_seed.SetValue(str(value))
+        self.Bind(wx.EVT_BUTTON, on_last_seed, id=wx.ID_ADD)
+        sizerRightAfter.Add(self.button_last_seed, proportion=0, flag=wx.ALL, border=5)
 
         sizerRightAfter2 = wx.BoxSizer(wx.HORIZONTAL)
         sizerRightAfter2.Add(
@@ -493,7 +508,13 @@ class PreviewGeneratorDialog(wx.Dialog):
             flag=wx.ALL,
         )
         choices = ["PerfectWorld.safetensors", "astranime_V6.safetensors", "AOM3.safetensors", "Anything-V3.0-pruned-fp16.ckpt", "v1-5-pruned.ckpt"]
-        self.lora_base = wx.ComboBox(self, id=wx.ID_ANY, value=self.preview_options.lora_base, choices=choices)
+        self.lora_base = wx.ComboBox(
+            self, 
+            id=wx.ID_ANY, 
+            value=self.preview_options.lora_base, 
+            choices=choices,
+            size = self.Parent.FromDIP(wx.Size(150, 25)),
+        )
         sizerRightAfter6.Add(self.lora_base, proportion=1, flag=wx.ALL, border=5)
         show_lora_base = False
         firstTagList = [item["tags"].split(",")[0].strip() for item in self.items]
@@ -607,7 +628,7 @@ class PreviewGeneratorDialog(wx.Dialog):
                 self.models_text.SetLabel(f"Progress: {i}/{len(self.items)-1}")
                 self.spinner_seed.SetValue(str(self.last_seed))
                 e = Event()
-                thread = self.start_prompt(item, e=e)
+                self.start_prompt(item, e=e)
                 await e.wait()
                 if upscaled:
                     self.status_text.SetLabel("Starting upscale...")
@@ -785,7 +806,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         negative = inputOptions.prompt_after if self.preview_options.prompt_after != inputOptions.prompt_after else itemOptions.prompt_after
         seed = inputOptions.seed if inputOptions.seed != self.preview_options.seed else itemOptions.seed
         if seed == -1:
-            seed = random.randint(0, 2**32)
+            seed = random.randint(0, SEED_RANDOM_MAX)
         denoise = inputOptions.denoise if inputOptions.denoise != self.preview_options.denoise else itemOptions.denoise
         upscale_denoise = inputOptions.upscale_denoise if inputOptions.upscale_denoise != self.preview_options.upscale_denoise else itemOptions.upscale_denoise
         cfg = inputOptions.cfg if inputOptions.cfg != self.preview_options.cfg else itemOptions.cfg

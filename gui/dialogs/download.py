@@ -362,6 +362,13 @@ class PreviewGeneratorDialog(wx.Dialog):
             size=self.Parent.FromDIP(wx.Size(250, 100)),
             style=wx.TE_MULTILINE | wx.TE_PROCESS_ENTER,
         )
+        
+        def OnEnter(e):
+            if wx.GetKeyState(wx.WXK_SHIFT):
+                self.OnRegenerate(e)
+            if wx.GetKeyState(wx.WXK_ALT):
+                self.OnUpscale(e)
+        self.text_prompt_before.Bind(wx.EVT_TEXT_ENTER, OnEnter)
         self.text_prompt_after = wx.TextCtrl(
             self,
             id=wx.ID_ANY,
@@ -369,6 +376,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             size=self.Parent.FromDIP(wx.Size(250, 100)),
             style=wx.TE_MULTILINE | wx.TE_PROCESS_ENTER,
         )
+        self.text_prompt_after.Bind(wx.EVT_TEXT_ENTER, OnEnter)
 
         # Status controls/buttons
         self.status_text = wx.StaticText(self, -1, "Ready")

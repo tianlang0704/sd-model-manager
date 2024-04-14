@@ -338,14 +338,7 @@ class ResultsGallery(wx.Panel):
         self.pub.publish(Key("item_selected"), list.get_selection())
 
     async def OnThumbnailActivated(self, evt):
-        selected = self.gallery.GetSelectedItem()
-        if selected is None:
-            return
-        item = selected.GetData()
-        dialog = MetadataDialog(self, item, app=self.app)
-        dialog.CenterOnParent(wx.BOTH)
-        await wxasync.AsyncShowDialogModal(dialog)
-        # dialog.Destroy()
+        await self.app.frame.OnGeneratePreviews(None, op="replace")
 
     def OnThumbnailRightClicked(self, evt):
         selected = self.get_selection()

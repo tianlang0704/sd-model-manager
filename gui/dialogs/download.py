@@ -204,9 +204,9 @@ class PreviewPromptData:
             filename = image["filename"]
         keywordToFunc = {
             MODEL_SD_15_TAG: self.to_prompt_default_hr,
-            # MODEL_SD_XL_TAG: self.to_prompt_xl_hr,
-            # MODEL_SD_TURBO_TAG: self.to_prompt_turbo_hr,
-            # MODEL_SD_MERGE_TURBO_TAG: self.to_prompt_merge_turbo_hr,
+            MODEL_SD_XL_TAG: self.to_prompt_xl_hr,
+            MODEL_SD_TURBO_TAG: self.to_prompt_turbo_hr,
+            MODEL_SD_MERGE_TURBO_TAG: self.to_prompt_merge_turbo_hr,
             MODEL_SD_LORA_TAG: self.to_prompt_lora_hr,
         }
         for keyword in keywordToFunc:
@@ -243,6 +243,47 @@ class PreviewPromptData:
         prompt["22"]["inputs"]["lora_name"] = self.checkpoint
         return prompt
 
+    def to_prompt_xl_hr(self, filename):
+        prompt = load_prompt("xl-hr.json")
+        prompt["27"]["inputs"]["seed"] = self.seed
+        prompt["27"]["inputs"]["start_at_step"] = int(self.steps * (1 - self.upscale_denoise))
+        prompt["27"]["inputs"]["cfg"] = self.cfg
+        prompt["27"]["inputs"]["steps"] = self.steps
+        prompt["27"]["inputs"]["sampler_name"] = self.sampler
+        prompt["27"]["inputs"]["scheduler"] = self.scheduler
+        prompt["12"]["inputs"]["ckpt_name"] = self.checkpoint
+        prompt["15"]["inputs"]["text"] = self.positive
+        prompt["16"]["inputs"]["text"] = self.negative
+        prompt["24"]["inputs"]["image"] = f"{filename} [output]"
+        return prompt
+    
+    def to_prompt_turbo_hr(self, filename):
+        prompt = load_prompt("turbo-hr.json")
+        prompt["13"]["inputs"]["noise_seed"] = self.seed
+        prompt["13"]["inputs"]["cfg"] = self.cfg
+        prompt["22"]["inputs"]["denoise"] = self.upscale_denoise
+        prompt["22"]["inputs"]["steps"] = self.steps
+        prompt["14"]["inputs"]["sampler_name"] = self.sampler
+        prompt["20"]["inputs"]["ckpt_name"] = self.checkpoint
+        prompt["6"]["inputs"]["text"] = self.positive
+        prompt["7"]["inputs"]["text"] = self.negative
+        prompt["38"]["inputs"]["image"] = f"{filename} [output]"
+        return prompt
+    
+    def to_prompt_merge_turbo_hr(self, filename):
+        prompt = load_prompt("merge_turbo-hr.json")
+        prompt["5"]["inputs"]["seed"] = self.seed
+        prompt["5"]["inputs"]["denoise"] = self.upscale_denoise
+        prompt["5"]["inputs"]["cfg"] = self.cfg
+        prompt["5"]["inputs"]["steps"] = self.steps
+        prompt["5"]["inputs"]["sampler_name"] = self.sampler
+        prompt["5"]["inputs"]["scheduler"] = self.scheduler
+        prompt["2"]["inputs"]["stop_at_clip_layer"] = self.clip
+        prompt["1"]["inputs"]["ckpt_name"] = self.checkpoint
+        prompt["3"]["inputs"]["text"] = self.positive
+        prompt["4"]["inputs"]["text"] = self.negative
+        prompt["10"]["inputs"]["image"] = f"{filename} [output]"
+        return prompt
 class CancelException(Exception):
     pass
 
@@ -419,7 +460,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         )
         sizerRightAfter2.Add(self.spinner_steps, proportion=1, flag=wx.ALL, border=5)
 
-        sizerRightAfter2.Add(
+        clip_label = sizerRightAfter2.Add(
             wx.StaticText(self, wx.ID_ANY, label="Clip"),
             proportion=0,
             border=5,
@@ -436,6 +477,12 @@ class PreviewGeneratorDialog(wx.Dialog):
             # size=self.Parent.FromDIP(wx.Size(140, 25)),
         )
         sizerRightAfter2.Add(self.spinner_clip, proportion=1, flag=wx.ALL, border=5)
+        firstTagList = self.get_first_tag_list()
+        show_clip = False
+        if sum(1 for tag in firstTagList if tag != MODEL_SD_TURBO_TAG and tag != MODEL_SD_XL_TAG) > 0:
+            show_clip = True
+        clip_label.Show(show_clip)
+        self.spinner_clip.Show(show_clip)
 
         sizerRightAfter3 = wx.BoxSizer(wx.HORIZONTAL)
         sizerRightAfter3.Add(
@@ -490,7 +537,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         sizerRightAfter4.Add(self.sampler, proportion=1, flag=wx.ALL, border=5)
 
         sizerRightAfter5 = wx.BoxSizer(wx.HORIZONTAL)
-        sizerRightAfter5.Add(
+        scheduler_label = sizerRightAfter5.Add(
             wx.StaticText(self, wx.ID_ANY, label="Scheduler"),
             proportion=0,
             border=5,
@@ -499,6 +546,12 @@ class PreviewGeneratorDialog(wx.Dialog):
         choices = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform"]
         self.scheduler = wx.ComboBox(self, id=wx.ID_ANY, value=self.preview_options.scheduler, choices=choices)
         sizerRightAfter5.Add(self.scheduler, proportion=1, flag=wx.ALL, border=5)
+        firstTagList = self.get_first_tag_list()
+        show_scheduler = False
+        if sum(1 for tag in firstTagList if tag != MODEL_SD_TURBO_TAG) > 0:
+            show_scheduler = True
+        scheduler_label.Show(show_scheduler)
+        self.scheduler.Show(show_scheduler)
 
         sizerRightAfter6 = wx.BoxSizer(wx.HORIZONTAL)
         lora_base_label = sizerRightAfter6.Add(
@@ -516,8 +569,8 @@ class PreviewGeneratorDialog(wx.Dialog):
             size = self.Parent.FromDIP(wx.Size(150, 25)),
         )
         sizerRightAfter6.Add(self.lora_base, proportion=1, flag=wx.ALL, border=5)
+        firstTagList = self.get_first_tag_list()
         show_lora_base = False
-        firstTagList = [item["tags"].split(",")[0].strip() for item in self.items]
         if MODEL_SD_LORA_TAG in firstTagList:
             show_lora_base = True
         lora_base_label.Show(show_lora_base)
@@ -700,11 +753,14 @@ class PreviewGeneratorDialog(wx.Dialog):
         else:
             insert_str += f"steps: {steps}\n"
 
-        clip = self.spinner_clip.GetValue()
-        if re.search(CLIP_REGEX, notes, re.I):
-            notes = re.sub(CLIP_REGEX, f"clip: {clip}\n", notes, flags = re.I)
-        else:
-            insert_str += f"clip: {clip}\n"
+        # turbo and xl no clip
+        firstTag = self.get_main_first_tag()
+        if firstTag != MODEL_SD_TURBO_TAG and firstTag != MODEL_SD_XL_TAG:
+            clip = self.spinner_clip.GetValue()
+            if re.search(CLIP_REGEX, notes, re.I):
+                notes = re.sub(CLIP_REGEX, f"clip: {clip}\n", notes, flags = re.I)
+            else:
+                insert_str += f"clip: {clip}\n"
 
         sampler = self.sampler.GetValue()
         if re.search(SAMPLER_REGEX, notes, re.I):
@@ -712,17 +768,23 @@ class PreviewGeneratorDialog(wx.Dialog):
         else:
             insert_str += f"sampler: {sampler}\n"
         
-        scheduler = self.scheduler.GetValue()
-        if re.search(SCHEDULER_REGEX, notes, re.I):
-            notes = re.sub(SCHEDULER_REGEX, f"scheduler: {scheduler}\n", notes, flags = re.I)
-        else:
-            insert_str += f"scheduler: {scheduler}\n"
+        # turbo no scheduler
+        firstTag = self.get_main_first_tag()
+        if firstTag != MODEL_SD_TURBO_TAG:
+            scheduler = self.scheduler.GetValue()
+            if re.search(SCHEDULER_REGEX, notes, re.I):
+                notes = re.sub(SCHEDULER_REGEX, f"scheduler: {scheduler}\n", notes, flags = re.I)
+            else:
+                insert_str += f"scheduler: {scheduler}\n"
 
-        lora_base = self.lora_base.GetValue()
-        if re.search(LORA_BASE_REGEX, notes, re.I):
-            notes = re.sub(LORA_BASE_REGEX, f"lora base: {lora_base}\n", notes, flags = re.I)
-        else:
-            insert_str += f"lora base: {lora_base}\n"
+        # only lora need base model
+        firstTag = self.get_main_first_tag()
+        if firstTag == MODEL_SD_LORA_TAG:
+            lora_base = self.lora_base.GetValue()
+            if re.search(LORA_BASE_REGEX, notes, re.I):
+                notes = re.sub(LORA_BASE_REGEX, f"lora base: {lora_base}\n", notes, flags = re.I)
+            else:
+                insert_str += f"lora base: {lora_base}\n"
 
         results_panel = self.app.frame.results_panel
         selection = results_panel.get_selection()
@@ -1050,6 +1112,12 @@ class PreviewGeneratorDialog(wx.Dialog):
             lora_base
         )
         return previewPrompOptions
+    
+    def get_first_tag_list(self):
+        return [item["tags"].split(",")[0].strip() for item in self.items]
+    
+    def get_main_first_tag(self):
+        return self.items[0]["tags"].split(",")[0].strip()
 
 
 def any_have_previews(items):

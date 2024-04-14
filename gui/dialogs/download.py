@@ -40,6 +40,7 @@ DEFAULT_POSITIVE = "masterpiece, 1girl, solo"
 DEFAULT_NEGATIVE = "(worst quality, low quality:1.2)"
 DEFAULT_SEED = -1
 DEFAULT_DENOISE = 1.0
+DEFAULT_UPSCALE_DENOISE = 0.6
 DEFAULT_CFG = 8
 DEFAULT_STEPS = 20
 DEFAULT_CLIP = -1
@@ -50,13 +51,14 @@ DEFAULT_LORA_BASE = "AOM3.safetensors"
 POSITIVE_REGEX = r"positive:(.+)\n*"
 NEGATIVE_REGEX = r"negative:(.+)\n*"
 SEED_REGEX = r"seed:\s*(\-?\s*\d+)\n*"
-DENOISE_REGEX = r"denoise:\s*(\d+\s*.?\s*\d*)\n*"
+DENOISE_REGEX = r"(upscale)?.*denoise:\s*(\d+\s*.?\s*\d*)\n*"
+UPSCALE_DENOISE_REGEX = r"upscale.*denoise:\s*(\d+\s*.?\s*\d*)\n*"
 CFG_REGEX = r"cfg:\s*(\d+)\n*"
 STEPS_REGEX = r"steps:\s*(\d+)\n*"
 CLIP_REGEX = r"clip:\s*(-?\s*\d+)\n*"
 SAMPLER_REGEX = r"sampler:\s*([\w\.\-_]+)\n*"
 SCHEDULER_REGEX = r"scheduler:\s*([\w\.\-_]+)\n*"
-LORA_BASE_REGEX = r"lora[_\-\s]*base:\s*([\w\.\-_ ]+)\n*"
+LORA_BASE_REGEX = r"lora.*base:\s*([\w\.\-_ ]+)\n*"
 
 MODEL_SD_15_TAG = "sd-1.5"
 MODEL_SD_XL_TAG = "sd-xl"
@@ -77,6 +79,7 @@ class GeneratePreviewsOptions:
     prompt_after: str
     seed: int
     denoise: float
+    upscale_denoise: float
     cfg: int
     steps: int
     clip: int
@@ -89,6 +92,7 @@ class GeneratePreviewsOptions:
 class PreviewPromptData:
     seed: int
     denoise: float
+    upscale_denoise: float
     checkpoint: str
     positive: str
     negative: str
@@ -191,6 +195,11 @@ class PreviewPromptData:
         firstTag = ""
         if self.tags:
             firstTag = self.tags.split(",")[0].strip()
+        filename = ""
+        if isinstance(image, str):
+            filename = image
+        else:
+            filename = image["filename"]
         keywordToFunc = {
             MODEL_SD_15_TAG: self.to_prompt_default_hr,
             # MODEL_SD_XL_TAG: self.to_prompt_xl_hr,
@@ -200,14 +209,13 @@ class PreviewPromptData:
         }
         for keyword in keywordToFunc:
             if keyword == firstTag:
-                return keywordToFunc[keyword](image)
-        return self.to_prompt_default_hr(image)
+                return keywordToFunc[keyword](filename)
+        return self.to_prompt_default_hr(filename)
 
-    def to_prompt_default_hr(self, image):
+    def to_prompt_default_hr(self, filename):
         prompt = load_prompt("default-hr.json")
-        filename = image["filename"]
         prompt["11"]["inputs"]["seed"] = self.seed
-        prompt["11"]["inputs"]["denoise"] = self.denoise
+        prompt["11"]["inputs"]["denoise"] = self.upscale_denoise
         prompt["11"]["inputs"]["cfg"] = self.cfg
         prompt["11"]["inputs"]["steps"] = self.steps
         prompt["11"]["inputs"]["sampler_name"] = self.sampler
@@ -218,11 +226,10 @@ class PreviewPromptData:
         prompt["18"]["inputs"]["image"] = f"{filename} [output]"
         return prompt
     
-    def to_prompt_lora_hr(self, image):
+    def to_prompt_lora_hr(self, filename):
         prompt = load_prompt("lora-hr.json")
-        filename = image["filename"]
         prompt["11"]["inputs"]["seed"] = self.seed
-        prompt["11"]["inputs"]["denoise"] = self.denoise
+        prompt["11"]["inputs"]["denoise"] = self.upscale_denoise
         prompt["11"]["inputs"]["cfg"] = self.cfg
         prompt["11"]["inputs"]["steps"] = self.steps
         prompt["11"]["inputs"]["sampler_name"] = self.sampler
@@ -303,18 +310,25 @@ class PreviewGeneratorDialog(wx.Dialog):
 
         # Status controls/buttons
         self.status_text = wx.StaticText(self, -1, "Ready")
-        self.models_text = wx.StaticText(
-            self, wx.ID_ANY, label=f"Selected models: {len(self.items)}"
-        )
+        self.models_text = wx.StaticText(self, wx.ID_ANY, label=f"Selected models: {len(self.items)}")
         self.gauge = wx.Gauge(self, -1, 100, size=app.FromDIP(800, 32))
-        self.image_panel = ImagePanel(
-            self, style=wx.SUNKEN_BORDER, size=app.FromDIP(512, 512)
-        )
+        self.image_panel = ImagePanel(self, style=wx.SUNKEN_BORDER, size=app.FromDIP(512, 512))
+        main_item = items[0] if items and len(items) > 0 else None
+        preview_image = None
+        if main_item is not None:
+            filepath = main_item["filepath"]
+            basepath = os.path.splitext(filepath)[0]
+            images = find_preview_images(basepath)
+            if len(images) > 0:
+                preview_image = images[0]
+                self.image_panel.LoadImageFrompath(preview_image)
+                self.last_output = preview_image
 
         self.button_save_notes = wx.Button(self, wx.ID_SAVE, "Save Notes")
         self.button_regenerate = wx.Button(self, wx.ID_HELP, "Generate")
         self.button_upscale = wx.Button(self, wx.ID_APPLY, "Upscale")
-        self.button_upscale.Disable()
+        if not preview_image:
+            self.button_upscale.Disable()
         self.button_cancel = wx.Button(self, wx.ID_CANCEL, "Cancel")
         self.button_ok = wx.Button(self, wx.ID_OK, "OK")
         self.button_ok.Disable()
@@ -345,28 +359,13 @@ class PreviewGeneratorDialog(wx.Dialog):
             border=5,
             flag=wx.ALL,
         )
-        self.spinner_seed = wx.TextCtrl(self, wx.ID_ANY, value=str(self.preview_options.seed), size=self.Parent.FromDIP(wx.Size(140, 25)))
+        self.spinner_seed = wx.TextCtrl(
+            self, 
+            wx.ID_ANY, 
+            value=str(self.preview_options.seed), 
+            # size=self.Parent.FromDIP(wx.Size(140, 25))
+        )
         sizerRightAfter.Add(self.spinner_seed, proportion=1, flag=wx.ALL, border=5)
-
-        sizerRightAfter.Add(
-            wx.StaticText(self, wx.ID_ANY, label="Denoise"),
-            proportion=0,
-            border=5,
-            flag=wx.ALL,
-        )
-        self.spinner_denoise = floatspin.FloatSpin(
-            self,
-            id=wx.ID_ANY,
-            min_val=0,
-            max_val=1,
-            increment=0.01,
-            value=self.preview_options.denoise,
-            agwStyle=floatspin.FS_LEFT,
-            size=self.Parent.FromDIP(wx.Size(140, 25)),
-        )
-        self.spinner_denoise.SetFormat("%f")
-        self.spinner_denoise.SetDigits(2)
-        sizerRightAfter.Add(self.spinner_denoise, proportion=1, flag=wx.ALL, border=5)
 
         sizerRightAfter2 = wx.BoxSizer(wx.HORIZONTAL)
         sizerRightAfter2.Add(
@@ -383,7 +382,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             min=1,
             max=30,
             initial=self.preview_options.cfg,
-            size=self.Parent.FromDIP(wx.Size(150, 25)),
+            # size=self.Parent.FromDIP(wx.Size(150, 25)),
         )
         sizerRightAfter2.Add(self.spinner_cfg, proportion=1, flag=wx.ALL, border=5)
 
@@ -401,12 +400,11 @@ class PreviewGeneratorDialog(wx.Dialog):
             min=1,
             max=50,
             initial=self.preview_options.steps,
-            size=self.Parent.FromDIP(wx.Size(150, 25)),
+            # size=self.Parent.FromDIP(wx.Size(150, 25)),
         )
         sizerRightAfter2.Add(self.spinner_steps, proportion=1, flag=wx.ALL, border=5)
 
-        sizerRightAfter3 = wx.BoxSizer(wx.HORIZONTAL)
-        sizerRightAfter3.Add(
+        sizerRightAfter2.Add(
             wx.StaticText(self, wx.ID_ANY, label="Clip"),
             proportion=0,
             border=5,
@@ -420,9 +418,50 @@ class PreviewGeneratorDialog(wx.Dialog):
             min=-12,
             max=-1,
             initial=self.preview_options.clip,
-            size=self.Parent.FromDIP(wx.Size(140, 25)),
+            # size=self.Parent.FromDIP(wx.Size(140, 25)),
         )
-        sizerRightAfter3.Add(self.spinner_clip, proportion=1, flag=wx.ALL, border=5)
+        sizerRightAfter2.Add(self.spinner_clip, proportion=1, flag=wx.ALL, border=5)
+
+        sizerRightAfter3 = wx.BoxSizer(wx.HORIZONTAL)
+        sizerRightAfter3.Add(
+            wx.StaticText(self, wx.ID_ANY, label="Denoise"),
+            proportion=0,
+            border=5,
+            flag=wx.ALL,
+        )
+        self.spinner_denoise = floatspin.FloatSpin(
+            self,
+            id=wx.ID_ANY,
+            min_val=0,
+            max_val=1,
+            increment=0.01,
+            value=self.preview_options.denoise,
+            agwStyle=floatspin.FS_LEFT,
+            # size=self.Parent.FromDIP(wx.Size(140, 25)),
+        )
+        self.spinner_denoise.SetFormat("%f")
+        self.spinner_denoise.SetDigits(2)
+        sizerRightAfter3.Add(self.spinner_denoise, proportion=1, flag=wx.ALL, border=5)
+
+        sizerRightAfter3.Add(
+            wx.StaticText(self, wx.ID_ANY, label="Upscale Denoise"),
+            proportion=0,
+            border=5,
+            flag=wx.ALL,
+        )
+        self.spinner_upscale_denoise = floatspin.FloatSpin(
+            self,
+            id=wx.ID_ANY,
+            min_val=0,
+            max_val=1,
+            increment=0.01,
+            value=self.preview_options.upscale_denoise,
+            agwStyle=floatspin.FS_LEFT,
+            # size=self.Parent.FromDIP(wx.Size(140, 25)),
+        )
+        self.spinner_upscale_denoise.SetFormat("%f")
+        self.spinner_upscale_denoise.SetDigits(2)
+        sizerRightAfter3.Add(self.spinner_upscale_denoise, proportion=1, flag=wx.ALL, border=5)
 
         sizerRightAfter4 = wx.BoxSizer(wx.HORIZONTAL)
         sizerRightAfter4.Add(
@@ -434,7 +473,9 @@ class PreviewGeneratorDialog(wx.Dialog):
         choices = ["euler_ancestral", "dpmpp_2m"]
         self.sampler = wx.ComboBox(self, id=wx.ID_ANY, value=self.preview_options.sampler, choices=choices)
         sizerRightAfter4.Add(self.sampler, proportion=1, flag=wx.ALL, border=5)
-        sizerRightAfter4.Add(
+
+        sizerRightAfter5 = wx.BoxSizer(wx.HORIZONTAL)
+        sizerRightAfter5.Add(
             wx.StaticText(self, wx.ID_ANY, label="Scheduler"),
             proportion=0,
             border=5,
@@ -442,10 +483,10 @@ class PreviewGeneratorDialog(wx.Dialog):
         )
         choices = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform"]
         self.scheduler = wx.ComboBox(self, id=wx.ID_ANY, value=self.preview_options.scheduler, choices=choices)
-        sizerRightAfter4.Add(self.scheduler, proportion=1, flag=wx.ALL, border=5)
+        sizerRightAfter5.Add(self.scheduler, proportion=1, flag=wx.ALL, border=5)
 
-        sizerRightAfter5 = wx.BoxSizer(wx.HORIZONTAL)
-        lora_base_label = sizerRightAfter5.Add(
+        sizerRightAfter6 = wx.BoxSizer(wx.HORIZONTAL)
+        lora_base_label = sizerRightAfter6.Add(
             wx.StaticText(self, wx.ID_ANY, label="Lora Base"),
             proportion=0,
             border=5,
@@ -453,7 +494,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         )
         choices = ["PerfectWorld.safetensors", "astranime_V6.safetensors", "AOM3.safetensors", "Anything-V3.0-pruned-fp16.ckpt", "v1-5-pruned.ckpt"]
         self.lora_base = wx.ComboBox(self, id=wx.ID_ANY, value=self.preview_options.lora_base, choices=choices)
-        sizerRightAfter5.Add(self.lora_base, proportion=1, flag=wx.ALL, border=5)
+        sizerRightAfter6.Add(self.lora_base, proportion=1, flag=wx.ALL, border=5)
         show_lora_base = False
         firstTagList = [item["tags"].split(",")[0].strip() for item in self.items]
         if MODEL_SD_LORA_TAG in firstTagList:
@@ -472,6 +513,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         sizerRight.Add(sizerRightAfter3, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfter4, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfter5, proportion=1, flag=wx.ALL)
+        sizerRight.Add(sizerRightAfter6, proportion=1, flag=wx.ALL)
         sizerRight.Add(
             self.models_text,
             proportion=0,
@@ -498,9 +540,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.app.SetStatusText("Saving preview...")
         self.status_text.SetLabel("Saving preview...")
 
-        image_data = self.comfy_api.get_image(
-            result["filename"], result["subfolder"], result["type"]
-        )
+        image_data = self.comfy_api.get_image(result["filename"], result["subfolder"], result["type"])
         filepath = item["filepath"]
         basepath = os.path.splitext(filepath)[0]
 
@@ -614,10 +654,18 @@ class PreviewGeneratorDialog(wx.Dialog):
             insert_str += f"seed: {seed}\n"
         
         denoise = self.spinner_denoise.GetValue()
-        if re.search(DENOISE_REGEX, notes, re.I):
-            notes = re.sub(DENOISE_REGEX, f"denoise: {denoise}\n", notes, flags = re.I)
+        re_result = re.finditer(DENOISE_REGEX, notes, re.I)
+        count = sum(1 for match in re_result if not match.group(1))
+        if count:
+            notes = re.sub(DENOISE_REGEX, lambda match: match.group(0) if match.group(1) else f"denoise: {denoise}\n", notes, flags = re.I)
         else:
             insert_str += f"denoise: {denoise}\n"
+
+        upscale_denoise = self.spinner_upscale_denoise.GetValue()
+        if re.search(UPSCALE_DENOISE_REGEX, notes, re.I):
+            notes = re.sub(UPSCALE_DENOISE_REGEX, f"upscale denoise: {upscale_denoise}\n", notes, flags = re.I)
+        else:
+            insert_str += f"upscale denoise: {upscale_denoise}\n"
 
         cfg = self.spinner_cfg.GetValue()
         if re.search(CFG_REGEX, notes, re.I):
@@ -651,9 +699,9 @@ class PreviewGeneratorDialog(wx.Dialog):
 
         lora_base = self.lora_base.GetValue()
         if re.search(LORA_BASE_REGEX, notes, re.I):
-            notes = re.sub(LORA_BASE_REGEX, f"lora_base: {lora_base}\n", notes, flags = re.I)
+            notes = re.sub(LORA_BASE_REGEX, f"lora base: {lora_base}\n", notes, flags = re.I)
         else:
-            insert_str += f"lora_base: {lora_base}\n"
+            insert_str += f"lora base: {lora_base}\n"
 
         results_panel = self.app.frame.results_panel
         selection = results_panel.get_selection()
@@ -720,6 +768,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             self.text_prompt_after.GetValue(),
             int(self.spinner_seed.GetValue()),
             float(self.spinner_denoise.GetValue()),
+            float(self.spinner_upscale_denoise.GetValue()),
             int(self.spinner_cfg.GetValue()),
             int(self.spinner_steps.GetValue()),
             int(self.spinner_clip.GetValue()),
@@ -738,6 +787,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         if seed == -1:
             seed = random.randint(0, 2**32)
         denoise = inputOptions.denoise if inputOptions.denoise != self.preview_options.denoise else itemOptions.denoise
+        upscale_denoise = inputOptions.upscale_denoise if inputOptions.upscale_denoise != self.preview_options.upscale_denoise else itemOptions.upscale_denoise
         cfg = inputOptions.cfg if inputOptions.cfg != self.preview_options.cfg else itemOptions.cfg
         steps = inputOptions.steps if inputOptions.steps != self.preview_options.steps else itemOptions.steps
         clip = inputOptions.clip if inputOptions.clip != self.preview_options.clip else itemOptions.clip
@@ -748,6 +798,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         data = PreviewPromptData(
             seed, 
             denoise, 
+            upscale_denoise,
             checkpoint, 
             positive, 
             negative, 
@@ -940,8 +991,12 @@ class PreviewGeneratorDialog(wx.Dialog):
         re_notes_seed = re.search(SEED_REGEX, notes, re.I)
         seed = int(re_notes_seed.group(1).strip()) if re_notes_seed else DEFAULT_SEED
         # build denoise
-        re_notes_denoise = re.search(DENOISE_REGEX, notes, re.I)
-        denoise = float(re_notes_denoise.group(1).strip()) if re_notes_denoise else DEFAULT_DENOISE
+        re_result = re.finditer(DENOISE_REGEX, notes, re.I)
+        re_notes_denoise = next((match for match in re_result if not match.group(1)), None)
+        denoise = float(re_notes_denoise.group(2).strip()) if re_notes_denoise else DEFAULT_DENOISE
+        # build upscale denoise
+        re_notes_upscale_denoise = re.search(UPSCALE_DENOISE_REGEX, notes, re.I)
+        upscale_denoise = float(re_notes_upscale_denoise.group(1).strip()) if re_notes_upscale_denoise else DEFAULT_UPSCALE_DENOISE
         # build cfg
         re_notes_cfg = re.search(CFG_REGEX, notes, re.I)
         cfg = int(re_notes_cfg.group(1).strip()) if re_notes_cfg else DEFAULT_CFG
@@ -965,6 +1020,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             negative,
             seed,
             denoise,
+            upscale_denoise,
             cfg,
             steps,
             clip,

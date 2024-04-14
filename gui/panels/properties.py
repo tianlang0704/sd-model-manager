@@ -49,7 +49,7 @@ class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):
             ("keywords","Keywords",wx.TE_MULTILINE,self.Parent.FromDIP(wx.Size(250, 40)),),
             ("negative_keywords","Negative Keywords",wx.TE_MULTILINE,self.Parent.FromDIP(wx.Size(250, 40)),),
             ("description","Description",wx.TE_MULTILINE,self.Parent.FromDIP(wx.Size(250, 150)),),
-            ("notes", "Notes", wx.TE_MULTILINE, self.Parent.FromDIP(wx.Size(250, 170))),
+            ("notes", "Notes", wx.TE_MULTILINE, self.Parent.FromDIP(wx.Size(250, 180))),
         ]
 
         for key, label, style, size in ctrls:

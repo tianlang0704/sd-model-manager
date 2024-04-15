@@ -968,6 +968,8 @@ class PreviewGeneratorDialog(wx.Dialog):
 
     def enqueue_prompt_and_wait(self, executor, prompt):
         queue_result = executor.enqueue(prompt)
+        if queue_result.get("error") is not None:
+            raise(Exception(queue_result))
         prompt_id = queue_result["prompt_id"]
 
         while True:
@@ -1031,13 +1033,16 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.before_execute()
         self.last_output = None
 
+        prompt_id = None
+        image_data = None
+        image_location = None
         with ComfyExecutor(self.app) as executor:
             data = self.assemble_prompt_data(item)
             prompt = data.to_prompt()
             prompt_id = self.enqueue_prompt_and_wait(executor, prompt)
-
-        image_data, image_location = self.get_output_image(prompt_id)
-        if image_data:
+        if prompt_id is not None:
+            image_data, image_location = self.get_output_image(prompt_id)
+        if image_data is not None:
             self.image_panel.LoadImageFromBytes(image_data)
 
         self.last_data = data
@@ -1049,14 +1054,16 @@ class PreviewGeneratorDialog(wx.Dialog):
 
     def do_upscale(self, item):
         self.before_execute()
-
+        prompt_id = None
+        image_data = None
+        image_location = None
         with ComfyExecutor(self.app) as executor:
             data = self.assemble_prompt_data(item)
             prompt = data.to_hr_prompt(self.last_output)
             prompt_id = self.enqueue_prompt_and_wait(executor, prompt)
-
-        image_data, image_location = self.get_output_image(prompt_id)
-        if image_data:
+        if prompt_id is not None:
+            image_data, image_location = self.get_output_image(prompt_id)
+        if image_data is not None:
             self.image_panel.LoadImageFromBytes(image_data)
 
         self.last_data = data
@@ -1083,14 +1090,21 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.gauge.SetValue(value)
 
     async def on_fail(self, ex):
+        msg = ex
+        error = len(ex.args) > 0 and ex.args[0]
+        if isinstance(error, dict):
+            msg = error.get("error") or msg
+            details = error.get("details")
+            if details:
+                msg += f"\n{details}"
+            
         dialog = wx.MessageDialog(
             self,
-            f"Failed to generate previews:\n{ex}",
+            f"Failed to generate previews:\n{msg}\nMost likely the sampler or scheduler or lora base is not available, please check on ComfyUI",
             "Generation Failed",
             wx.OK | wx.ICON_ERROR,
         )
         await wxasync.AsyncShowDialogModal(dialog)
-        # dialog.Destroy()
         self.AsyncEndModal(wx.ID_CANCEL)
 
     def item_to_preview_options(self, itemsOrItems):

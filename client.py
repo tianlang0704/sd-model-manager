@@ -54,7 +54,6 @@ async def main():
     if is_comfyui:
         config.listen = config.comfy_listen
         config.port = config.comfy_port
-
     if not config.listen:
         config.listen = "127.0.0.1"
     if config.port is None:

@@ -32,7 +32,27 @@ class ComfyExecutor:
         p = {"prompt": prompt_json, "client_id": self.client_id, "number": 10000}
         data = json.dumps(p).encode("utf-8")
         req = urllib.request.Request(f"http://{self.server_address}/prompt", data=data)
-        return json.loads(urllib.request.urlopen(req).read())
+        res = None
+        try:
+            res = json.loads(urllib.request.urlopen(req).read())
+        except urllib.error.HTTPError as e:
+            error = str(e)
+            try:
+                error_content = json.loads(e.read())
+                error = error_content["error"]["message"]
+            except:
+                pass
+            details = None
+            try:
+                node_errors = error_content["node_errors"]
+                one_error = next(iter(node_errors.values()))["errors"][0]
+                details = one_error["message"] + "\n" + one_error["details"]
+            except:
+                pass
+            res = {"error": error, "details": details}
+        except Exception as e:
+            res = {"error": str(e)}
+        return res
 
     def get_status(self):
         out = self.ws.recv()

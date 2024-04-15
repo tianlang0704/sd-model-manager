@@ -713,6 +713,8 @@ class PreviewGeneratorDialog(wx.Dialog):
         if len(filenames) <= 0:
             return
         filepath = filenames[0]
+        if not filepath.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+            return False
         self.set_preview_image(filepath)
         return True
 

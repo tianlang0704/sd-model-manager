@@ -1,3 +1,39 @@
+# About This Fork
+
+This fork mainly works as a ComfyUI companion. Although it can work alone, without ComfyUI it does not generate a preview, so not much of use on itself.
+
+So the best way to use it is just install as a normal ComfyUI custom node.
+I've fixed it up and added an entrance on the menu of ComfyUI so it can be opened just by clicking on that button.
+
+It can now automatically detect ComfyUI model paths config so mostly likely it won't need any configuration.
+But if your ComfyUI uses a different port or address you can configure it in the config file.
+There are some UI/UX fix too, to make it easier to use.
+<p align="left">
+  <img src="./static/screenshot4.png" height="500" />
+</p>
+
+### QoL updates:
+#### Search Text: 
+- Can now use || to join multiple search qualifiers with OR logic. Example: tags:tag1||tags:tag2||has:image
+- Can now save search queries to a button showing above the search box.
+- Search box now has a history function.
+#### Keyboard Shortcuts: 
+- Ctrl+S to save edited fields
+- Ctrl+D to clear edited fields, in case changed accidentally
+- Ctrl+Q to show preview generator, double click does the same, and now defaults to replace preview image. Right click to append new image.
+- Ctrl+C to copy text in list, item is determined by selection, column is determined by mouse pointer. Can copy multiple.
+#### Property Editing:
+- Keywords and Negative Keywords will now get added to prompts automatically when generating previews.
+- First tag in Tags now work as a model type marker for preview generation, there are predefined types in the drop down list.
+- Parameters in notes will now get parsed into preview generation, and can be saved back to notes.
+#### Preview Generation:
+- Add more parameters and parameters now can be saved to notes when Save Notes button is clicked.
+- Image can be dragged to ComfyUI to show workflow.
+- Image files can be dragged into preview generation window to be used as an image input of the up-scaler
+- Ctrl+Drag and Ctrl+Scroll moves and zooms the image.
+- Generation workflow behind the scene is determined by the first tag in Tags, different first tag uses different workflow.
+
+
 # sd-model-manager
 
 A desktop application and companion web server for browsing and managing Stable Diffusion models (embeddings, LoRAs, etc.) and their metadata.

@@ -458,7 +458,8 @@ class ResultsNotebook(wx.Panel):
 
         self.SetSizerAndFit(self.sizer)
         self.LoadSearchOptions()
-        self.UpdateViewFromSearchOptions()
+        self.UpdateSearchHistory()
+        self.UpdateSearchSave()
 
     def get_selection(self):
         return self.results_panel.get_selection()
@@ -515,6 +516,7 @@ class ResultsNotebook(wx.Panel):
         query = self.searchBox.GetValue()
         query = re.sub(SAVE_NAME_REGEX, "", query)
         await self.app.frame.search(query)
+        self.UpdateSearchHistory()
 
     async def OnClear(self, evt):
         self.searchBox.SetValue("")
@@ -544,11 +546,13 @@ class ResultsNotebook(wx.Panel):
             jsonStr = simplejson.dumps(self.search_options)
             f.write(jsonStr)
     
-    def UpdateViewFromSearchOptions(self):
+    def UpdateSearchHistory(self):
         query = self.searchBox.GetValue()
         search_history = self.search_options.get("search_history")
         self.searchBox.SetItems(search_history)
+        self.searchBox.SetValue(query)
 
+    def UpdateSearchSave(self):
         search_save = self.search_options.get("search_save")
         self.sizerSearchSave.Clear(True)
         for i, value in enumerate(search_save):
@@ -563,7 +567,6 @@ class ResultsNotebook(wx.Panel):
                 await self.OnSearch(evt)
             wxasync.AsyncBind(wx.EVT_BUTTON, OnClick, button)
         self.Layout()
-        self.searchBox.SetValue(query)
 
     def SaveSearchHistory(self):
         value = self.searchBox.GetValue()
@@ -576,7 +579,6 @@ class ResultsNotebook(wx.Panel):
         if len(search_history) > 20:
             self.search_options["search_history"] = search_history[:20]
         self.SaveSearchOptions()
-        self.UpdateViewFromSearchOptions()
 
     async def OnSaveSearch(self, evt):
         options = self.search_options.get("search_save")
@@ -586,7 +588,7 @@ class ResultsNotebook(wx.Panel):
             value = f"button name: {SAVE_NAME_DEFAULT} {value}"
         options.append(value)
         self.SaveSearchOptions()
-        self.UpdateViewFromSearchOptions()
+        self.UpdateSearchSave()
 
     async def OnRemoveSearch(self, evt):
         value = self.searchBox.GetValue()
@@ -595,4 +597,4 @@ class ResultsNotebook(wx.Panel):
             return
         options.remove(value)
         self.SaveSearchOptions()        
-        self.UpdateViewFromSearchOptions()
+        self.UpdateSearchSave()

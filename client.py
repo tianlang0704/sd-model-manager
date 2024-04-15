@@ -13,9 +13,7 @@ import asyncio
 import argparse
 import traceback
 from aiohttp import web
-
 import wx
-
 from main import create_app
 from sd_model_manager.utils.common import get_config
 
@@ -28,29 +26,10 @@ try:
 except:
     pass
 
-
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "-l",
-    "--listen",
-    type=str,
-    default="127.0.0.1",
-    help="Address for model manager server",
-)
-parser.add_argument("-p", "--port", type=int, help="Port for model manager server")
-parser.add_argument(
-    "-m",
-    "--mode",
-    type=str,
-    default="standalone",
-    help="Runtime mode ('standalone', 'noserver', 'comfyui')",
-)
-
-
 async def init_server():
     server = await create_app([])
-    host = server["config"].listen
-    port = server["config"].port
+    host = server["sdmm_config"].listen
+    port = server["sdmm_config"].port
 
     runner = web.AppRunner(server)
     await runner.setup()
@@ -61,8 +40,6 @@ async def init_server():
 
 
 app = None
-
-
 def exception_handler(exception_type, exception_value, exception_traceback):
     global app
     msg = "An error has occurred!\n\n"
@@ -82,7 +59,7 @@ def exception_handler(exception_type, exception_value, exception_traceback):
 
 async def main():
     global app
-    config = parser.parse_args()
+    config = get_config(sys.argv[1:])
     config.listen = config.listen.strip()
     config.mode = config.mode.strip()
     use_internal_server = config.mode != "noserver" and config.mode != "comfyui"

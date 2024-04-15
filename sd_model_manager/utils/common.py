@@ -18,22 +18,18 @@ p = configargparse.ArgParser(
     config_file_parser_class=configargparse.YAMLConfigFileParser,
 )
 p.add_argument("-c", "--config-file", is_config_file=True, help="Config file path")
-p.add_argument("-l", "--listen", type=str, default="127.0.0.1")
-p.add_argument("-p", "--port", type=int, default=7779)
+p.add_argument("-l","--listen",type=str,default="127.0.0.1",help="Address for model manager server",)
+p.add_argument("-p", "--port", type=int, default=7779, help="Port for model manager server")
+p.add_argument("-m","--mode",type=str,default="standalone",help="Runtime mode ('standalone', 'noserver', 'comfyui')",)
 p.add_argument("--model-paths", type=str, nargs="+")
-
 
 def get_config(argv):
     if len(argv) > 0 and argv[0].endswith("adev"):
         argv = []
-
     config = p.parse_args(argv)
-
     return config
 
-
 IMAGE_EXTS = set([".png", ".jpg", ".jpeg", ".gif", ".webp"])
-
 
 def is_image_path(path):
     ext = os.path.splitext(path)

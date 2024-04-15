@@ -1,15 +1,15 @@
 # About This Fork
 
-This fork mainly works as a ComfyUI companion. Although it can work alone, without ComfyUI it does not generate a preview, so not much of use on itself.
+This fork mainly works as a ComfyUI companion. Although it can work alone, without ComfyUI it does not generate any image, so not much of use on it's own.
 
-So the best way to use it is just install as a normal ComfyUI custom node.
+The best way to use it is just install as a normal ComfyUI custom node.
 I've fixed it up and added an entrance on the menu of ComfyUI so it can be opened just by clicking on that button.
 
 It can now automatically detect ComfyUI model paths config so mostly likely it won't need any configuration.
 But if your ComfyUI uses a different port or address you can configure it in the config file.
 There are some UI/UX fix too, to make it easier to use.
 <p align="left">
-  <img src="./static/screenshot4.png" height="500" />
+  <img src="./static/screenshot0.png" height="500" />
 </p>
 
 ### QoL updates:
@@ -32,7 +32,7 @@ There are some UI/UX fix too, to make it easier to use.
 - Image files can be dragged into preview generation window to be used as an image input of the up-scaler
 - Ctrl+Drag and Ctrl+Scroll moves and zooms the image.
 - Generation workflow behind the scene is determined by the first tag in Tags, different first tag uses different workflow.
-
+---
 
 # sd-model-manager
 

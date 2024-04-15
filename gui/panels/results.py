@@ -493,6 +493,7 @@ class ResultsNotebook(wx.Panel):
             self.results_gallery.SetThumbs(list.filtered)
 
     async def search(self, query, only_update_result=False):
+        query = re.sub(SAVE_NAME_REGEX, "", query)
         self.pub.publish(Key("item_selected"), [])
         self.results = await self.app.api.get_loras(query)
         try_load_image.cache_clear()
@@ -513,9 +514,7 @@ class ResultsNotebook(wx.Panel):
 
     async def OnSearch(self, evt):
         self.SaveSearchHistory()
-        query = self.searchBox.GetValue()
-        query = re.sub(SAVE_NAME_REGEX, "", query)
-        await self.app.frame.search(query)
+        await self.app.frame.search(self.searchBox.GetValue())
         self.UpdateSearchHistory()
 
     async def OnClear(self, evt):

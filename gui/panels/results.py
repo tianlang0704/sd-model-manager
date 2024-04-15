@@ -1,4 +1,5 @@
 import os
+import re
 import aiopubsub
 from PIL import Image
 from aiopubsub import Key
@@ -25,6 +26,8 @@ from gui.popup_menu import PopupMenu, PopupMenuItem, create_popup_menu_for_item
 import simplejson
 
 SEARCH_SAVE_FILE = os.path.join(PATH, "search.json")
+SAVE_NAME_REGEX = r"^button.*name:\s*([\w\-]+)\s+"
+SAVE_NAME_DEFAULT = "Saved"
 
 class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
     def __init__(self, parent, app=None):
@@ -434,10 +437,12 @@ class ResultsNotebook(wx.Panel):
 
         wxasync.AsyncBind(wx.EVT_BUTTON, self.OnSearch, self.searchButton)
         wxasync.AsyncBind(wx.EVT_BUTTON, self.OnClear, self.clearButton)
-        wxasync.AsyncBind(wx.EVT_BUTTON, self.OnSave, self.saveButton)
-        wxasync.AsyncBind(wx.EVT_BUTTON, self.OnRemove, self.removeButton)
+        wxasync.AsyncBind(wx.EVT_BUTTON, self.OnSaveSearch, self.saveButton)
+        wxasync.AsyncBind(wx.EVT_BUTTON, self.OnRemoveSearch, self.removeButton)
         wxasync.AsyncBind(wx.EVT_TEXT_ENTER, self.OnSearch, self.searchBox)
         self.notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.OnPageChanged)
+
+        self.sizerSearchSave = wx.WrapSizer(wx.HORIZONTAL)
 
         self.sizerSearch = wx.BoxSizer(wx.HORIZONTAL)
         self.sizerSearch.Add(self.searchBox, proportion=5, flag=wx.LEFT | wx.EXPAND | wx.ALL, border=5)
@@ -448,10 +453,12 @@ class ResultsNotebook(wx.Panel):
 
         self.sizer = wx.BoxSizer(wx.VERTICAL)
         self.sizer.Add(self.notebook, proportion=1, flag=wx.EXPAND | wx.ALL, border=5)
+        self.sizer.Add(self.sizerSearchSave, flag=wx.EXPAND | wx.ALL, border=0)
         self.sizer.Add(self.sizerSearch, flag=wx.EXPAND | wx.ALL, border=5)
 
         self.SetSizerAndFit(self.sizer)
-        self.UpdateSearchOptions()
+        self.LoadSearchOptions()
+        self.UpdateViewFromSearchOptions()
 
     def get_selection(self):
         return self.results_panel.get_selection()
@@ -504,35 +511,88 @@ class ResultsNotebook(wx.Panel):
             self.results_gallery.SetThumbs(list.filtered)
 
     async def OnSearch(self, evt):
-        await self.app.frame.search(self.searchBox.GetValue())
-    
+        self.SaveSearchHistory()
+        query = self.searchBox.GetValue()
+        query = re.sub(SAVE_NAME_REGEX, "", query)
+        await self.app.frame.search(query)
+
     async def OnClear(self, evt):
         self.searchBox.SetValue("")
         await self.app.frame.search("")
 
-    async def OnSave(self, evt):
-        options = self.searchBox.GetItems()
-        value = self.searchBox.GetValue()
-        options.append(value)
-        with open(SEARCH_SAVE_FILE, "w") as f:
-            jsonStr = simplejson.dumps(options)
-            f.write(jsonStr)
-        self.UpdateSearchOptions(value)
-    
-    def UpdateSearchOptions(self, value = ""):
+    def LoadSearchOptions(self):
+        empty_search_options = {
+            "search_history": [],
+            "search_save": [],
+        }
         if not os.path.exists(SEARCH_SAVE_FILE):
+            self.search_options = empty_search_options
             return
         with open(SEARCH_SAVE_FILE, "r") as f:
-            options = simplejson.loads(f.read())
-            self.searchBox.SetItems(options)
-        self.searchBox.SetValue(value)
+            self.search_options = simplejson.loads(f.read())
+        if not isinstance(self.search_options, dict):
+            self.search_options = empty_search_options
+        if self.search_options.get("search_history") is None:
+            self.search_options["search_history"] = []
+        if self.search_options.get("search_save") is None:
+            self.search_options["search_save"] = []
 
-    async def OnRemove(self, evt):
-        value = self.searchBox.GetValue()
-        options = self.searchBox.GetItems()
-        if value in options:
-            options.remove(value)
+    def SaveSearchOptions(self):
+        if not self.search_options:
+            self.search_options = {}
         with open(SEARCH_SAVE_FILE, "w") as f:
-            jsonStr = simplejson.dumps(options)
+            jsonStr = simplejson.dumps(self.search_options)
             f.write(jsonStr)
-        self.UpdateSearchOptions(value)
+    
+    def UpdateViewFromSearchOptions(self):
+        query = self.searchBox.GetValue()
+        search_history = self.search_options.get("search_history")
+        self.searchBox.SetItems(search_history)
+
+        search_save = self.search_options.get("search_save")
+        self.sizerSearchSave.Clear(True)
+        for i, value in enumerate(search_save):
+            name = SAVE_NAME_DEFAULT
+            result = re.search(SAVE_NAME_REGEX, value)
+            if result:
+                name = result.group(1)
+            button = wx.Button(self, label=name)
+            self.sizerSearchSave.Add(button, proportion=1, flag=wx.ALL, border=0)
+            async def OnClick(evt, value=value):
+                self.searchBox.SetValue(value)
+                await self.OnSearch(evt)
+            wxasync.AsyncBind(wx.EVT_BUTTON, OnClick, button)
+        self.Layout()
+        self.searchBox.SetValue(query)
+
+    def SaveSearchHistory(self):
+        value = self.searchBox.GetValue()
+        if not value:
+            return
+        search_history = self.search_options.get("search_history")
+        if value in search_history:
+            return
+        search_history.insert(0, value)
+        if len(search_history) > 20:
+            self.search_options["search_history"] = search_history[:20]
+        self.SaveSearchOptions()
+        self.UpdateViewFromSearchOptions()
+
+    async def OnSaveSearch(self, evt):
+        options = self.search_options.get("search_save")
+        value = self.searchBox.GetValue()
+        result = re.search(SAVE_NAME_REGEX, value)
+        if not result:
+            value = f"button name: {SAVE_NAME_DEFAULT} {value}"
+        options.append(value)
+        self.SaveSearchOptions()
+        self.UpdateViewFromSearchOptions()
+
+    async def OnRemoveSearch(self, evt):
+        value = self.searchBox.GetValue()
+        options = self.search_options.get("search_save")
+        if value not in options:
+            return
+        options.remove(value)
+        self.SaveSearchOptions()        
+        self.UpdateViewFromSearchOptions()

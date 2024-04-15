@@ -1,6 +1,7 @@
 import os
 import pathlib
 import functools
+import sys
 from PIL import Image
 from typing import Any, Optional, List
 
@@ -10,7 +11,6 @@ import argparse
 import inspect
 
 PATH = pathlib.Path(__file__).parent.parent.parent
-# settings_file = os.environ.get('SETTINGS_FILE', 'api.dev.yml')
 DEFAULT_CONFIG_PATH = PATH / "config.yml"
 
 p = configargparse.ArgParser(
@@ -18,15 +18,22 @@ p = configargparse.ArgParser(
     config_file_parser_class=configargparse.YAMLConfigFileParser,
 )
 p.add_argument("-c", "--config-file", is_config_file=True, help="Config file path")
-p.add_argument("-l","--listen",type=str,default="127.0.0.1",help="Address for model manager server",)
-p.add_argument("-p", "--port", type=int, default=7779, help="Port for model manager server")
-p.add_argument("-m","--mode",type=str,default="standalone",help="Runtime mode ('standalone', 'noserver', 'comfyui')",)
+p.add_argument("-l", "--listen", type=str, default="127.0.0.1", help="Address for model manager in standalone mode")
+p.add_argument("-p", "--port", type=int, default=7779, help="Port for model manager in standalone mode")
+p.add_argument("-cl", "--comfy-listen", type=str, default="127.0.0.1", help="Address for comfyui server")
+p.add_argument("-cp", "--comfy-port", type=int, default=8188, help="Port for comfyui server")
+p.add_argument("-m", "--mode", type=str, default="standalone", help="Runtime mode ('standalone', 'noserver', 'comfyui')")
 p.add_argument("--model-paths", type=str, nargs="+")
 
 def get_config(argv):
+    if argv is None:
+        argv = sys.argv[1:]
     if len(argv) > 0 and argv[0].endswith("adev"):
         argv = []
     config = p.parse_args(argv)
+    config.listen = config.listen.strip()
+    config.comfy_listen = config.comfy_listen.strip()
+    config.mode = config.mode.strip()
     return config
 
 IMAGE_EXTS = set([".png", ".jpg", ".jpeg", ".gif", ".webp"])

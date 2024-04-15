@@ -1,3 +1,5 @@
 listen: 0.0.0.0
 port: 7779
+comfy-listen: 0.0.0.0
+comfy-port: 8188
 model-paths:

@@ -7,7 +7,7 @@ from gui.api import ModelManagerAPI
 from gui.main_window import MainWindow
 
 
-class App(wxasync.WxAsyncApp):
+class ClientApp(wxasync.WxAsyncApp):
     def __init__(self, server, config, *args, **kwargs):
         self.server = server
         self.title = "sd-model-manager"

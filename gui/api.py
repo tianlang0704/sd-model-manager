@@ -65,8 +65,11 @@ class ModelManagerAPI:
 
 # TODO make async
 class ComfyAPI:
-    def __init__(self):
-        self.server_address = "127.0.0.1:8188"
+    def __init__(self, app):
+        listen = app.config.comfy_listen
+        if listen == "0.0.0.0":
+            listen = "localhost"
+        self.server_address = f"{listen}:{app.config.comfy_port}"
 
     def get_history(self, prompt_id):
         with urllib.request.urlopen(

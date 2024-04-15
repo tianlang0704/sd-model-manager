@@ -12,9 +12,10 @@ sd_model_manager_path = os.path.dirname(__file__)
 
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__))))
 
-from sd_model_manager.db import DB
 from sd_model_manager.api.views import routes as api_routes
-from sd_model_manager.utils.common import get_config, is_comfyui
+from sd_model_manager.utils.common import is_comfyui
+from sd_model_manager.server_app import create_server
+
 
 def setup_js():
     import nodes
@@ -38,28 +39,16 @@ setup_js()
 
 async def initialize_comfyui():
     print("[SD-Model-Manager] Initializing...")
-
     import server
     from aiohttp import web
-    import aiohttp
-
     prompt_server = server.PromptServer.instance
-
     for route in api_routes:
         prompt_server.routes._items.append(
             web.RouteDef(
                 route.method, "/models" + route.path, route.handler, route.kwargs
             )
         )
-
-    app = prompt_server.app
-    app["sdmm_config"] = get_config([])
-
-    db = DB()
-    await db.init(app["sdmm_config"].model_paths)
-    # await db.scan(app["sdmm_config"].model_paths)
-    app["sdmm_db"] = db
-
+    await create_server([], existing_server=prompt_server.app, try_debug=False)
     print("[SD-Model-Manager] Initialized via ComfyUI server.")
 
 
@@ -67,7 +56,6 @@ if not is_comfyui():
     raise RuntimeError(
         "This script was not run from ComfyUI, use client.py for a standalone GUI instead"
     )
-
 
 asyncio.run(initialize_comfyui())
 

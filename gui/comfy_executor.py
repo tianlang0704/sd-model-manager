@@ -10,10 +10,11 @@ from gui.utils import PROGRAM_ROOT
 
 
 class ComfyExecutor:
-    def __init__(self):
-        global app
-        
-        self.server_address = f"{app.config}:{8188}"
+    def __init__(self, app):
+        listen = app.config.comfy_listen
+        if listen == "0.0.0.0":
+            listen = "localhost"
+        self.server_address = f"{listen}:{app.config.comfy_port}"
         self.client_id = str(uuid.uuid4())
         self.ws = None
 

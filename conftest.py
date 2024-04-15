@@ -1,7 +1,7 @@
 import pytest
 
 from sd_model_manager.utils.common import PATH, get_config
-from sd_model_manager.app import init_app
+from sd_model_manager.server_app import init_server
 
 
 # constants
@@ -17,6 +17,6 @@ async def client(aiohttp_client):
     """
     The fixture for the initialize client.
     """
-    app = init_app(["-c", TEST_CONFIG_PATH.as_posix()])
+    app = init_server(["-c", TEST_CONFIG_PATH.as_posix()])
 
     return await aiohttp_client(app)

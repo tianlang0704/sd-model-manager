@@ -336,7 +336,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             parent, -1, f"Preview Generator: {main_name}{suffix}", size=app.FromDIP(700, 500)
         )
         self.app = app
-        self.comfy_api = ComfyAPI()
+        self.comfy_api = ComfyAPI(self.app)
         self.duplicate_op = duplicate_op  # "replace", "append"
         self.items = items
         self.preview_options = self.item_to_preview_options(items)
@@ -1031,7 +1031,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.before_execute()
         self.last_output = None
 
-        with ComfyExecutor() as executor:
+        with ComfyExecutor(self.app) as executor:
             data = self.assemble_prompt_data(item)
             prompt = data.to_prompt()
             prompt_id = self.enqueue_prompt_and_wait(executor, prompt)
@@ -1050,7 +1050,7 @@ class PreviewGeneratorDialog(wx.Dialog):
     def do_upscale(self, item):
         self.before_execute()
 
-        with ComfyExecutor() as executor:
+        with ComfyExecutor(self.app) as executor:
             data = self.assemble_prompt_data(item)
             prompt = data.to_hr_prompt(self.last_output)
             prompt_id = self.enqueue_prompt_and_wait(executor, prompt)

@@ -14,29 +14,17 @@ import argparse
 import traceback
 from aiohttp import web
 import wx
-from main import create_app
+from sd_model_manager.server_app import create_server
 from sd_model_manager.utils.common import get_config
 
 import gui.patch
 
-from gui.app import App
+from gui.client_app import ClientApp
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(True)
 except:
     pass
-
-async def init_server():
-    server = await create_app([])
-    host = server["sdmm_config"].listen
-    port = server["sdmm_config"].port
-
-    runner = web.AppRunner(server)
-    await runner.setup()
-    site = web.TCPSite(runner, host, port)
-    await site.start()
-
-    return server
 
 
 app = None
@@ -60,19 +48,24 @@ def exception_handler(exception_type, exception_value, exception_traceback):
 async def main():
     global app
     config = get_config(sys.argv[1:])
-    config.listen = config.listen.strip()
-    config.mode = config.mode.strip()
-    use_internal_server = config.mode != "noserver" and config.mode != "comfyui"
     is_comfyui = config.mode == "comfyui"
+    is_noserver = config.mode == "noserver"
 
+    if is_comfyui:
+        config.listen = config.comfy_listen
+        config.port = config.comfy_port
+
+    if not config.listen:
+        config.listen = "127.0.0.1"
     if config.port is None:
         config.port = 8188 if is_comfyui else 7779
 
     server = None
+    use_internal_server = (not is_noserver) and (not is_comfyui)
     if use_internal_server:
-        server = await init_server()
+        server = await create_server(start_type="runner")
 
-    app = App(server, config, redirect=False)
+    app = ClientApp(server, config, redirect=False)
     sys.excepthook = exception_handler
 
     try:

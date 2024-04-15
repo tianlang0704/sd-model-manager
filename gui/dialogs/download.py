@@ -363,12 +363,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             style=wx.TE_MULTILINE | wx.TE_PROCESS_ENTER,
         )
         
-        def OnEnter(e):
-            if wx.GetKeyState(wx.WXK_SHIFT):
-                self.OnRegenerate(e)
-            if wx.GetKeyState(wx.WXK_ALT):
-                self.OnUpscale(e)
-        self.text_prompt_before.Bind(wx.EVT_TEXT_ENTER, OnEnter)
+        
         self.text_prompt_after = wx.TextCtrl(
             self,
             id=wx.ID_ANY,
@@ -376,7 +371,6 @@ class PreviewGeneratorDialog(wx.Dialog):
             size=self.Parent.FromDIP(wx.Size(250, 100)),
             style=wx.TE_MULTILINE | wx.TE_PROCESS_ENTER,
         )
-        self.text_prompt_after.Bind(wx.EVT_TEXT_ENTER, OnEnter)
 
         # Status controls/buttons
         self.status_text = wx.StaticText(self, -1, "Ready")
@@ -402,6 +396,12 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.button_ok = wx.Button(self, wx.ID_OK, "OK")
         self.button_ok.Disable()
 
+        def OnEnter(e):
+            if wx.GetKeyState(wx.WXK_SHIFT):
+                self.OnRegenerate(e)
+            if wx.GetKeyState(wx.WXK_ALT):
+                self.OnUpscale(e)
+        self.Bind(wx.EVT_TEXT_ENTER, OnEnter)
         self.Bind(wx.EVT_BUTTON, self.OnRegenerate, id=wx.ID_HELP)
         self.Bind(wx.EVT_BUTTON, self.OnUpscale, id=wx.ID_APPLY)
         self.Bind(wx.EVT_BUTTON, self.OnCancel, id=wx.ID_CANCEL)

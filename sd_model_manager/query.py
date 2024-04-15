@@ -36,7 +36,7 @@ class AbstractCriteria:
             matches = self.match(query_string)
             if not matches:
                 return ori_stmt, query_string
-            query_string = re.sub(self.re, "", query_string).strip()
+            query_string = re.sub(self.re, "", query_string, 1).strip()
             return self.do_join_statement(ori_stmt, matches), query_string
         return self.do_join_statement(ori_stmt, query_string)
     
@@ -58,7 +58,7 @@ class AbstractCriteria:
 
 class StringCriteria(AbstractCriteria):
     def __init__(self, prefix, column, exact=False):
-        self.re = re.compile(rf'(^| +)(\|\|)?(-)?{prefix}:("([^"]+)"|(\S+?))(?=$|\s|\|\|)', re.I)
+        self.re = re.compile(rf'(^| +)(\|\|)?\s*(-)?{prefix}:("([^"]+)"|(\S+?))(?=$|\s|\|\|)', re.I)
         self.prefix = prefix
         self.column = column
         self.exact = exact
@@ -91,7 +91,7 @@ class StringCriteria(AbstractCriteria):
 class NumberCriteria(AbstractCriteria):
     def __init__(self, prefix, column, type):
         self.re = re.compile(
-            rf"(^| +)(\|\|)?(-)?{prefix}:(==|!=|>|<|>=|<=)?(\d+?(?:\.\d+)?)(?=$|\s|\|\|)", re.I
+            rf"(^| +)(\|\|)?\s*(-)?{prefix}:(==|!=|>|<|>=|<=)?(\d+?(?:\.\d+)?)(?=$|\s|\|\|)", re.I
         )
         self.prefix = prefix
         self.column = column
@@ -139,7 +139,7 @@ class NumberCriteria(AbstractCriteria):
 
 class HasCriteria(AbstractCriteria):
     def __init__(self, suffix, column, compare="", count=False):
-        self.re = re.compile(rf"(^| +)(\|\|)?(-)?has:{suffix}", re.I)
+        self.re = re.compile(rf"(^| +)(\|\|)?\s*(-)?has:{suffix}", re.I)
         self.suffix = suffix
         self.column = column
         self.compare = ""

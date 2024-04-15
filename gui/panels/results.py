@@ -50,6 +50,7 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
         self.filter = None
         self.clicked = False
         self.primary_item = None
+        self.all_names = set()
 
         # EVT_LIST_ITEM_SELECTED and ULC_VIRTUAL don't mix
         # https://github.com/wxWidgets/wxWidgets/issues/4541
@@ -93,8 +94,16 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
         self.clicked = True
         evt.Skip()
 
+    def get_all_names(self):
+        return list(self.all_names)
+
+    def record_all_names(self, results):
+        for item in results["data"]:
+            self.all_names.add(item["filename"])
+
     def set_results(self, results):
         self.results = results
+        self.record_all_names(results)
 
     def select_default(self):
         if len(self.filtered) <= 0:

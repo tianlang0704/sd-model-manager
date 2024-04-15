@@ -177,9 +177,7 @@ class MainWindow(wx.Frame):
         self.statusbar = self.CreateStatusBar(1)
 
         self.sub = aiopubsub.Subscriber(PUBSUB_HUB, Key("events"))
-        self.sub.add_async_listener(
-            Key("events", "item_selected"), self.SubItemSelected
-        )
+        self.sub.add_async_listener(Key("events", "item_selected"), self.SubItemSelected)
         self.pub = aiopubsub.Publisher(PUBSUB_HUB, Key("events"))
 
         self.Show()
@@ -226,6 +224,7 @@ class MainWindow(wx.Frame):
         selection = self.results_panel.get_selection()
         if len(selection) == 0:
             return
+        await self.OnSave(evt)
         await gui.dialogs.download.run(self.app, selection, op)
 
     async def OnShowMetadata(self, evt):

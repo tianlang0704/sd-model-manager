@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import io
 import os
@@ -579,8 +580,20 @@ class PreviewGeneratorDialog(wx.Dialog):
             border=5,
             flag=wx.ALL,
         )
-        choices = ["euler_ancestral", "dpmpp_2m"]
-        self.sampler = wx.ComboBox(self, id=wx.ID_ANY, value=self.preview_options.sampler, choices=choices)
+        choices = ["euler_ancestral", "dpmpp_2m", "dpmpp_3m_sde"]
+        if self.app.config.mode == "comfyui":
+            try:
+                from comfy.samplers import KSAMPLER_NAMES
+                choices = KSAMPLER_NAMES
+            except:
+                pass
+        self.sampler = wx.ComboBox(
+            self, 
+            id=wx.ID_ANY, 
+            value=self.preview_options.sampler, 
+            choices=choices, 
+            style=wx.TE_PROCESS_ENTER
+        )
         sizerRightAfter5.Add(self.sampler, proportion=1, flag=wx.ALL, border=5)
 
         sizerRightAfter6 = wx.BoxSizer(wx.HORIZONTAL)
@@ -591,7 +604,18 @@ class PreviewGeneratorDialog(wx.Dialog):
             flag=wx.ALL,
         )
         choices = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform"]
-        self.scheduler = wx.ComboBox(self, id=wx.ID_ANY, value=self.preview_options.scheduler, choices=choices)
+        if self.app.config.mode == "comfyui":
+            try:
+                from comfy.samplers import SCHEDULER_NAMES
+                choices = SCHEDULER_NAMES
+            except:
+                pass
+        self.scheduler = wx.ComboBox(
+            self, 
+            id=wx.ID_ANY, 
+            value=self.preview_options.scheduler, 
+            choices=choices, style=wx.TE_PROCESS_ENTER
+        )
         sizerRightAfter6.Add(self.scheduler, proportion=1, flag=wx.ALL, border=5)
         firstTagList = self.get_first_tag_list()
         show_scheduler = False
@@ -608,13 +632,52 @@ class PreviewGeneratorDialog(wx.Dialog):
             flag=wx.ALL,
         )
         choices = ["PerfectWorld.safetensors", "astranime_V6.safetensors", "AOM3.safetensors", "Anything-V3.0-pruned-fp16.ckpt", "v1-5-pruned.ckpt"]
+        dynamic_choices = self.app.frame.results_panel.results_panel.list.get_all_names()
+        if len(dynamic_choices) > 0:
+            for choice in choices:
+                if choice in dynamic_choices:
+                    dynamic_choices.remove(choice)
+                    dynamic_choices.insert(0, choice)
+            choices = dynamic_choices
         self.lora_base = wx.ComboBox(
             self, 
             id=wx.ID_ANY, 
             value=self.preview_options.lora_base, 
             choices=choices,
-            size = self.Parent.FromDIP(wx.Size(150, 25)),
+            size = self.Parent.FromDIP(wx.Size(200, 25)),
+            style=wx.TE_PROCESS_ENTER,
         )
+        # workaround for wxpython backward compatibility: SetItmes and SetValue must trigger EVT_TEXT
+        async def OnLoraBaseChangeDummy(e):
+            pass
+        latest_time = 0
+        async def OnLoraBaseChange(e):
+            text = self.lora_base.GetValue()
+            select = self.lora_base.GetCurrentSelection()
+            selected_text = None
+            if select != wx.NOT_FOUND:
+                items = self.lora_base.GetItems()
+                selected_text = items[select]
+            if text == selected_text:
+                return
+            nonlocal latest_time
+            latest_time = time.time()
+            my_time = latest_time
+            if text != "":
+                await asyncio.sleep(0.5)
+            if my_time != latest_time:
+                return
+            wxasync.AsyncBind(wx.EVT_TEXT, OnLoraBaseChangeDummy, self.lora_base)
+            caret = self.lora_base.GetInsertionPoint()
+            filter_choice = [choice for choice in choices if text.lower() in choice.lower()]
+            self.lora_base.SetItems(filter_choice)
+            self.lora_base.SetSelection(-1, -1)
+            self.lora_base.Popup()
+            self.lora_base.SetValue(text)
+            self.lora_base.SetInsertionPoint(caret)
+            wxasync.AsyncBind(wx.EVT_TEXT, OnLoraBaseChange, self.lora_base)
+        wxasync.AsyncBind(wx.EVT_TEXT, OnLoraBaseChange, self.lora_base)
+
         sizerRightAfter7.Add(self.lora_base, proportion=1, flag=wx.ALL, border=5)
         firstTagList = self.get_first_tag_list()
         show_lora_base = False

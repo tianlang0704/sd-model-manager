@@ -1,0 +1,62 @@
+{
+  "42": {
+    "inputs": {
+      "width": [
+        "62",
+        0
+      ],
+      "height": [
+        "62",
+        1
+      ],
+      "batch_size": 1,
+      "seed": 123,
+      "multiplier": 1,
+      "constant_batch_noise": false,
+      "normalize": false,
+      "sigmas": [
+        "54",
+        0
+      ]
+    },
+    "class_type": "GenerateNoise",
+    "_meta": {
+      "title": "GenerateNoise"
+    }
+  },
+  "43": {
+    "inputs": {
+      "strength": 0,
+      "normalize": false,
+      "average": false,
+      "mix_randn_amount": 0,
+      "seed": 123,
+      "noise": [
+        "42",
+        0
+      ]
+    },
+    "class_type": "InjectNoiseToLatent",
+    "_meta": {
+      "title": "InjectNoiseToLatent"
+    }
+  },
+  "54": {
+    "inputs": {
+      "scheduler": "normal",
+      "steps": 20,
+      "denoise": 1
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {
+      "title": "BasicScheduler"
+    }
+  },
+  "62": {
+    "inputs": {},
+    "class_type": "ImageGenResolutionFromLatent",
+    "_meta": {
+      "title": "Generation Resolution From Latent"
+    }
+  }
+}

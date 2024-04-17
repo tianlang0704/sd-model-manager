@@ -121,7 +121,7 @@
   },
   "20": {
     "inputs": {
-      "upscale_method": "bislerp",
+      "upscale_method": "bicubic",
       "scale_by": 2,
       "samples": [
         "19",

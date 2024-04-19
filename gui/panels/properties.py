@@ -54,6 +54,13 @@ class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):
         self.is_committing = False
         self.change_handlers = {}
 
+        # bind escape
+        def OnCharHook(evt):
+            if evt.GetKeyCode() == wx.WXK_ESCAPE:
+                self.restore_changes()
+            evt.Skip()
+        self.Bind(wx.EVT_CHAR_HOOK, OnCharHook)
+
         ctrls = [
             ("display_name", "Name", None, None),
             ("version", "Version", None, None),

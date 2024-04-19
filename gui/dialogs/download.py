@@ -965,7 +965,9 @@ class PreviewGeneratorDialog(wx.Dialog):
         else:
             self.status_text.SetLabel("Done!")
 
+        await self.app.frame.results_panel.re_search()
         self.AsyncEndModal(wx.ID_OK)
+        
 
     def OnCancel(self, evt):
         self.AsyncEndModal(wx.ID_CANCEL)
@@ -1082,13 +1084,9 @@ class PreviewGeneratorDialog(wx.Dialog):
                 insert_str += f"lora base: {lora_base}\n"
 
         results_panel = self.app.frame.results_panel
-        selection = results_panel.get_selection()
         notes = insert_str + notes
-        main_item["notes"] = notes
-        result = await self.app.api.update_lora(main_item["id"], {"notes": notes})
-        print(result)
-        await results_panel.search(results_panel.searchBox.GetValue(), True)
-        results_panel.restore_selection(selection)
+        await self.app.api.update_lora(main_item["id"], {"notes": notes})
+        await results_panel.re_search()
         
 
     def OnRegenerate(self, evt):

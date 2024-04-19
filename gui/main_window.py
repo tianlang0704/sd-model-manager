@@ -193,7 +193,7 @@ class MainWindow(wx.Frame):
         self.Refresh()
 
     async def OnClearChange(self, evt):
-        self.properties_panel.clear_changes()
+        self.properties_panel.restore_changes()
         self.Refresh()
 
     async def OnOpenFolder(self, evt):
@@ -255,7 +255,7 @@ class MainWindow(wx.Frame):
             return
         result = await self.app.api.remove_lora(targetIdList)
         print(result)
-        await self.results_panel.search(self.results_panel.searchBox.GetValue(), only_update_result=True)
+        await self.results_panel.re_search()
 
 
     async def SubItemSelected(self, key, items):

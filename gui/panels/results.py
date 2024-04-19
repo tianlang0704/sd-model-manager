@@ -7,7 +7,8 @@ from aiopubsub import Key
 import wx
 import wx.aui
 import wx.lib.newevent
-from wx.lib.agw import ultimatelistctrl
+# from wx.lib.agw import ultimatelistctrl
+from gui import ultimatelistctrl
 import wxasync
 
 from sd_model_manager.utils.common import try_load_image, PATH
@@ -112,17 +113,21 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
         self.Focus(0)
         self.pub.publish(Key("item_selected"), self.get_selection())
 
-    def restore_selection(self, selection):
+    def restore_selection(self, selection, scrollY=None):
         selected_index = [self.index_from_id(item["id"]) for item in selection]
         selected_index = [i for i in selected_index if i is not None]
         if len(selected_index) <= 0:
-            return
+            return False
         self.ClearSelection()
         for index in selected_index:
             self.Select(index, 1)
         self.Focus(selected_index[0])
+        if scrollY is not None:
+            self._mainWin.Scroll(-1, scrollY)
+            self._mainWin.ResetVisibleLinesRange()
         selection = self.get_selection()
         self.pub.publish(Key("item_selected"), selection)
+        return True
 
     def refresh_filtered_data(self):
         data = self.results["data"]
@@ -163,6 +168,8 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
     def get_selection(self):
         item = self.GetFirstSelected()
         num = self.GetSelectedItemCount()
+        if num == 0:
+            return []
         selection = [item]
         for i in range(1, num):
             item = self.GetNextSelected(item)
@@ -411,9 +418,6 @@ class ResultsPanel(wx.Panel):
 
     def get_selection(self):
         return self.list.get_selection()
-    
-    def restore_selection(self, selection):
-        self.list.restore_selection(selection)
 
 class ResultsNotebook(wx.Panel):
     def __init__(self, parent, app=None):
@@ -472,9 +476,7 @@ class ResultsNotebook(wx.Panel):
 
     def get_selection(self):
         return self.results_panel.get_selection()
-    
-    def restore_selection(self, selection):
-        self.results_panel.restore_selection(selection)
+
 
     async def refresh_one_item(self, item):
         try_load_image.cache_clear()
@@ -501,22 +503,28 @@ class ResultsNotebook(wx.Panel):
         if self.notebook.GetSelection() == 1:
             self.results_gallery.SetThumbs(list.filtered)
 
-    async def search(self, query, only_update_result=False):
+    async def re_search(self):
+        query = self.searchBox.GetValue()
+        await self.search(query, restore_list=True)
+
+    async def search(self, query, restore_list=False):
         query = re.sub(SAVE_NAME_REGEX, "", query)
-        self.pub.publish(Key("item_selected"), [])
+        # self.pub.publish(Key("item_selected"), [])
         self.results = await self.app.api.get_loras(query)
         try_load_image.cache_clear()
 
         list = self.results_panel.list
+        selection_before = list.get_selection()
+        scroll_before = list.GetScrollPos(wx.VERTICAL)
         list.DeleteAllItems()
         list.Arrange(ultimatelistctrl.ULC_ALIGN_DEFAULT)
         list.set_results(self.results)
-        if not only_update_result:
+        if not restore_list:
             list.filter = None
         list.refresh_filtered_data()
         list.refresh_text_view()
-        list.select_default()
-
+        if restore_list and not list.restore_selection(selection_before, scroll_before):
+            list.select_default()
         self.results_gallery.needs_update = True
         if self.notebook.GetSelection() == 1:
             self.results_gallery.SetThumbs(list.filtered)

@@ -14,10 +14,9 @@ import wx.lib.newevent
 from sd_model_manager.utils.common import find_image, try_load_image
 
 
-PROGRAM_ROOT = os.path.dirname(
-    os.path.realpath(os.path.join(os.path.abspath(__file__), ".."))
-)
+PROGRAM_ROOT = os.path.dirname(os.path.realpath(os.path.join(os.path.abspath(__file__), "..")))
 PUBSUB_HUB = aiopubsub.Hub()
+COMFY_ROOT = os.path.realpath(os.path.join(os.path.abspath(PROGRAM_ROOT), "../.."))
 
 
 def trim_string(s, n=200):

@@ -16,10 +16,15 @@ from aiopubsub import Key
 from sd_model_manager.utils.common import try_load_image
 from gui import ids, utils
 from gui.api import ComfyAPI, ModelManagerAPI
-from gui.utils import PROGRAM_ROOT, combine_tag_freq
+from gui.utils import PROGRAM_ROOT, COMFY_ROOT, combine_tag_freq
 from gui.comfy_executor import ComfyExecutor
 from gui.image_panel import ImagePanel
 from gui.async_utils import AsyncShowDialog, AsyncShowDialogModal, on_close
+from gui.panels.properties import MODEL_SD_15_TAG\
+    , MODEL_SD_XL_TAG\
+    , MODEL_SD_TURBO_TAG\
+    , MODEL_SD_MERGE_TURBO_TAG\
+    , MODEL_SD_LORA_TAG
 
 OVERRIDE_KEYWORD = "override:"
 DEFAULT_POSITIVE = "masterpiece, 1girl, solo"
@@ -32,27 +37,24 @@ DEFAULT_STEPS = 20
 DEFAULT_CLIP = -1
 DEFAULT_UPSCALE_FACTOR = 1.5
 DEFAULT_ADD_NOISE = 0.0
+DEFAULT_UPSCALE_ADD_NOISE = 0.0
 DEFAULT_SAMPLER = "euler_ancestral"
 DEFAULT_SCHEDULER = "normal"
 DEFAULT_LORA_BASE = "AOM3.safetensors"
 REGEX_POSITIVE = r"positive:(.+)\n*"
 REGEX_NEGATIVE = r"negative:(.+)\n*"
 REGEX_SEED = r"seed:\s*(\-?\s*\d+)\n*"
-REGEX_DENOISE = r"(upscale)?[\t\f \-_]*denoise:\s*?(\d+\s*?\.?\s*?\d*)\n*" #workaround for detecting upscale denoise
-REGEX_UPSCALE_DENOISE = r"upscale[\t\f \-_]*denoise:\s*(\d+\s*\.?\s*\d*)\n*"
+REGEX_DENOISE = r"(upscale)?[\t\f \-_]*denoise:\s*?(\-?\s*\d+\s*?\.?\s*?\d*)\n*" #workaround for detecting upscale denoise
+REGEX_UPSCALE_DENOISE = r"upscale[\t\f \-_]*denoise:\s*(\-?\s*\d+\s*\.?\s*\d*)\n*"
 REGEX_CFG = r"cfg:\s*(\d+)\n*"
 REGEX_STEPS = r"steps:\s*(\d+)\n*"
-REGEX_CLIP = r"clip:\s*(-?\s*\d+)\n*"
+REGEX_CLIP = r"clip:\s*(\-?\s*\d+)\n*"
 REGEX_UPSCALE_FACTOR = r"upscale[\t\f \-_]*factor:\s*(\d+\s*\.?\s*\d*)\n*"
-REGEX_ADD_NOISE = r"add[\t\f \-_]*noise:\s*(\d+\s*\.?\s*\d*)\n*"
+REGEX_ADD_NOISE = r"(upscale)?[\t\f \-_]*add[\t\f \-_]*noise:\s*(\-?\s*\d+\s*\.?\s*\d*)\n*"
+REGEX_UPSCALE_ADD_NOISE = r"upscale[\t\f \-_]*add[\t\f \-_]*noise:\s*(\-?\s*\d+\s*\.?\s*\d*)\n*"
 REGEX_SAMPLER = r"sampler:\s*([\w\.\-_]+)\n*"
 REGEX_SCHEDULER = r"scheduler:\s*([\w\.\-_]+)\n*"
 REGEX_LORA_BASE = r"lora[\t\f \-_]*base:\s*([\w\.\-_ ]+)\n*"
-MODEL_SD_15_TAG = "sd-1.5"
-MODEL_SD_XL_TAG = "sd-xl"
-MODEL_SD_TURBO_TAG = "sd-turbo"
-MODEL_SD_MERGE_TURBO_TAG = "sd-merge-turbo"
-MODEL_SD_LORA_TAG = "sd-lora"
 SEED_RANDOM_MAX = 2**32
 
 def load_prompt(name):
@@ -75,6 +77,8 @@ class GeneratePreviewsOptions:
     upscale_factor: float
     add_noise: float
     check_add_noise: bool
+    upscale_add_noise: float
+    check_upscale_add_noise: bool
     sampler: str
     scheduler: str
     lora_base: str
@@ -94,6 +98,8 @@ class PreviewPromptData:
     upscale_factor: float
     add_noise: float
     check_add_noise: bool
+    upscale_add_noise: float
+    check_upscale_add_noise: bool
     sampler: str
     scheduler: str
     lora_base: str
@@ -119,9 +125,11 @@ class PreviewPromptData:
         in_latent_node = None, 
         in_latent_output = None, 
         out_latent_node = None, 
-        out_latent_input_name = None
+        out_latent_input_name = None,
+        add_noise = None,
+        check_add_noise = None,
     ):
-        if self.add_noise == 0 or not self.check_add_noise:
+        if add_noise == 0 or not check_add_noise:
             return
         add_noise_subnodes = load_prompt("add_noise.json")
         for key, value in add_noise_subnodes.items():
@@ -150,8 +158,8 @@ class PreviewPromptData:
         add_noise_subnodes["54"]["inputs"]["scheduler"] = self.scheduler
         add_noise_subnodes["54"]["inputs"]["steps"] = self.steps
         add_noise_subnodes["54"]["inputs"]["denoise"] = self.denoise
-        add_noise_subnodes["42"]["inputs"]["seed"] = self.seed if self.add_noise > 0 else random.randint(0, SEED_RANDOM_MAX)
-        add_noise_subnodes["43"]["inputs"]["strength"] = abs(self.add_noise)
+        add_noise_subnodes["42"]["inputs"]["seed"] = self.seed if add_noise > 0 else random.randint(0, SEED_RANDOM_MAX)
+        add_noise_subnodes["43"]["inputs"]["strength"] = abs(add_noise)
             
         keys = list(add_noise_subnodes.keys())
         for key in keys:
@@ -187,7 +195,7 @@ class PreviewPromptData:
         prompt["7"]["inputs"]["text"] = self.negative
         prompt["231"]["inputs"]["stop_at_clip_layer"] = self.clip
         prompt["4"]["inputs"]["ckpt_name"] = self.lora_base
-        self.add_noise_node(prompt=prompt, node_prefix="999")
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.add_noise, check_add_noise=self.check_add_noise)
         return prompt
     
     def to_prompt_merge_turbo(self):
@@ -202,7 +210,7 @@ class PreviewPromptData:
         prompt["1"]["inputs"]["ckpt_name"] = self.checkpoint
         prompt["3"]["inputs"]["text"] = self.positive
         prompt["4"]["inputs"]["text"] = self.negative
-        self.add_noise_node(prompt=prompt, node_prefix="999")
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.add_noise, check_add_noise=self.check_add_noise)
         return prompt
 
     def to_prompt_turbo(self):
@@ -214,7 +222,7 @@ class PreviewPromptData:
         prompt["7"]["inputs"]["text"] = self.negative
         prompt["22"]["inputs"]["steps"] = self.steps
         prompt["22"]["inputs"]["denoise"] = self.denoise
-        self.add_noise_node(prompt=prompt, node_prefix="999")
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.add_noise, check_add_noise=self.check_add_noise)
         return prompt
 
     def to_prompt_xl(self):
@@ -234,7 +242,7 @@ class PreviewPromptData:
         prompt["16"]["inputs"]["text"] = self.negative
         prompt["53"]["inputs"]["value"] = self.steps
         prompt["54"]["inputs"]["value"] = int(self.steps * self.denoise)
-        self.add_noise_node(prompt=prompt, node_prefix="999")
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.add_noise, check_add_noise=self.check_add_noise)
         return prompt
 
     def to_prompt_default(self):
@@ -249,7 +257,7 @@ class PreviewPromptData:
         prompt["6"]["inputs"]["text"] = self.positive
         prompt["7"]["inputs"]["text"] = self.negative
         prompt["31"]["inputs"]["stop_at_clip_layer"] = self.clip
-        self.add_noise_node(prompt=prompt, node_prefix="999")
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.add_noise, check_add_noise=self.check_add_noise)
         return prompt
 
     def to_hr_prompt(self, image):
@@ -286,7 +294,7 @@ class PreviewPromptData:
         prompt["7"]["inputs"]["text"] = self.negative
         prompt["20"]["inputs"]["scale_by"] = self.upscale_factor
         prompt["18"]["inputs"]["image"] = f"{filename} [output]"
-        self.add_noise_node(prompt=prompt, node_prefix="999")
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.upscale_add_noise, check_add_noise=self.check_upscale_add_noise)
         return prompt
     
     def to_prompt_lora_hr(self, filename):
@@ -303,7 +311,7 @@ class PreviewPromptData:
         prompt["22"]["inputs"]["lora_name"] = self.checkpoint
         prompt["20"]["inputs"]["scale_by"] = self.upscale_factor
         prompt["18"]["inputs"]["image"] = f"{filename} [output]"
-        self.add_noise_node(prompt=prompt, node_prefix="999")
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.upscale_add_noise, check_add_noise=self.check_upscale_add_noise)
         return prompt
 
     def to_prompt_xl_hr(self, filename):
@@ -319,7 +327,7 @@ class PreviewPromptData:
         prompt["16"]["inputs"]["text"] = self.negative
         prompt["52"]["inputs"]["scale_by"] = self.upscale_factor
         prompt["24"]["inputs"]["image"] = f"{filename} [output]"
-        self.add_noise_node(prompt=prompt, node_prefix="999")
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.upscale_add_noise, check_add_noise=self.check_upscale_add_noise)
         return prompt
     
     def to_prompt_turbo_hr(self, filename):
@@ -334,7 +342,7 @@ class PreviewPromptData:
         prompt["7"]["inputs"]["text"] = self.negative
         prompt["42"]["inputs"]["scale_by"] = self.upscale_factor
         prompt["38"]["inputs"]["image"] = f"{filename} [output]"
-        self.add_noise_node(prompt=prompt, node_prefix="999")
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.upscale_add_noise, check_add_noise=self.check_upscale_add_noise)
         return prompt
     
     def to_prompt_merge_turbo_hr(self, filename):
@@ -351,7 +359,7 @@ class PreviewPromptData:
         prompt["4"]["inputs"]["text"] = self.negative
         prompt["13"]["inputs"]["scale_by"] = self.upscale_factor
         prompt["10"]["inputs"]["image"] = f"{filename} [output]"
-        self.add_noise_node(prompt=prompt, node_prefix="999")
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.upscale_add_noise, check_add_noise=self.check_upscale_add_noise)
         return prompt
 class CancelException(Exception):
     pass
@@ -612,7 +620,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         sizerRightAfterDenoise.Add(self.spinner_upscale_denoise, proportion=1, flag=wx.ALL, border=5)
 
         sizerRightAfterAddNoise = wx.BoxSizer(wx.HORIZONTAL)
-        self.check_add_noise = wx.CheckBox(self, wx.ID_ANY, label=" Add Noise(Req. special node)")
+        self.check_add_noise = wx.CheckBox(self, wx.ID_ANY, label="Noise")
         self.check_add_noise.SetValue(self.preview_options.check_add_noise)
         self.temp_add_noise = self.preview_options.add_noise
         def OnAddNoiseCheck(e):
@@ -621,7 +629,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             else:
                 self.spinner_add_noise.SetValue(self.temp_add_noise)
         self.check_add_noise.Bind(wx.EVT_CHECKBOX, OnAddNoiseCheck)
-        sizerRightAfterAddNoise.Add(self.check_add_noise, proportion=0, border=5, flag=wx.ALL)
+        sizerRightAfterAddNoise.Add(self.check_add_noise, proportion=0, border=5, flag=wx.TOP|wx.BOTTOM)
         self.spinner_add_noise = floatspin.FloatSpin(
             self,
             id=wx.ID_ANY,
@@ -641,7 +649,37 @@ class PreviewGeneratorDialog(wx.Dialog):
                 self.temp_add_noise = value
             self.check_add_noise.SetValue(value != 0)
         self.spinner_add_noise.Bind(wx.EVT_TEXT, OnAddNoiseChange)
-
+        
+        self.check_upscale_add_noise = wx.CheckBox(self, wx.ID_ANY, label="Upscale N.")
+        self.check_upscale_add_noise.SetValue(self.preview_options.check_upscale_add_noise)
+        self.temp_upscale_add_noise = self.preview_options.upscale_add_noise
+        def OnUpscaleAddNoiseCheck(e):
+            if not self.check_upscale_add_noise.GetValue():
+                self.spinner_upscale_add_noise.SetValue(0)
+            else:
+                self.spinner_upscale_add_noise.SetValue(self.temp_upscale_add_noise)
+        self.check_upscale_add_noise.Bind(wx.EVT_CHECKBOX, OnUpscaleAddNoiseCheck)
+        sizerRightAfterAddNoise.Add(self.check_upscale_add_noise, proportion=0, border=5, flag=wx.TOP|wx.BOTTOM)
+        self.spinner_upscale_add_noise = floatspin.FloatSpin(
+            self,
+            id=wx.ID_ANY,
+            min_val=-10,
+            max_val=10,
+            increment=0.01,
+            value=self.preview_options.upscale_add_noise,
+            agwStyle=floatspin.FS_LEFT,
+            size=self.Parent.FromDIP(wx.Size(60, 25)),
+        )
+        self.spinner_upscale_add_noise.SetFormat("%f")
+        self.spinner_upscale_add_noise.SetDigits(3)
+        sizerRightAfterAddNoise.Add(self.spinner_upscale_add_noise, proportion=1, flag=wx.ALL, border=5)
+        def OnUpscaleAddNoiseChange(e):
+            value = float(e.GetString())
+            if value != 0:
+                self.temp_upscale_add_noise = value
+            self.check_upscale_add_noise.SetValue(value != 0)
+        self.spinner_upscale_add_noise.Bind(wx.EVT_TEXT, OnUpscaleAddNoiseChange)
+        
         sizerRightAfterUpscale = wx.BoxSizer(wx.HORIZONTAL)
         sizerRightAfterUpscale.Add(
             wx.StaticText(self, wx.ID_ANY, label="Upscale Factor"),
@@ -670,11 +708,29 @@ class PreviewGeneratorDialog(wx.Dialog):
             border=5,
             flag=wx.ALL,
         )
+        def read_list_from_file(filename, list_name):
+            if not os.path.isfile(filename):
+                return
+            with open(filename, "r") as f:
+                content = f.read()
+                choices = []
+                match = re.search(rf"{list_name} = \[([^\]]+)\]", content)
+                list_content = match.group(1) if match else ""
+                if not list_content:
+                    return
+                names = list_content.split(",")
+                for name in names:
+                    name = name.strip().replace("'", "").replace('"', "")
+                    if name:
+                        choices.append(name)
+                if len(choices) <= 0:
+                    return
+                return choices
         choices = ["euler_ancestral", "dpmpp_2m", "dpmpp_3m_sde"]
         if self.app.config.mode == "comfyui":
             try:
-                from comfy.samplers import KSAMPLER_NAMES
-                choices = KSAMPLER_NAMES
+                file = os.path.join(COMFY_ROOT, "comfy/samplers.py")
+                choices = read_list_from_file(file, "KSAMPLER_NAMES") or choices
             except:
                 pass
         self.sampler = wx.ComboBox(
@@ -696,8 +752,8 @@ class PreviewGeneratorDialog(wx.Dialog):
         choices = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform"]
         if self.app.config.mode == "comfyui":
             try:
-                from comfy.samplers import SCHEDULER_NAMES
-                choices = SCHEDULER_NAMES
+                file = os.path.join(COMFY_ROOT, "comfy/samplers.py")
+                choices = read_list_from_file(file, "SCHEDULER_NAMES") or choices
             except:
                 pass
         self.scheduler = wx.ComboBox(
@@ -938,7 +994,7 @@ class PreviewGeneratorDialog(wx.Dialog):
 
         seed = self.spinner_seed.GetValue()
         if re.search(REGEX_SEED, notes, re.I):
-            notes = re.sub(REGEX_SEED, f"seed: {seed}\n", notes, flags = re.I)
+            notes = re.sub(REGEX_SEED, f"seed: {seed}\n", notes, flags = re.I, count = 1)
         else:
             insert_str += f"seed: {seed}\n"
         
@@ -952,19 +1008,19 @@ class PreviewGeneratorDialog(wx.Dialog):
 
         upscale_denoise = self.spinner_upscale_denoise.GetValue()
         if re.search(REGEX_UPSCALE_DENOISE, notes, re.I):
-            notes = re.sub(REGEX_UPSCALE_DENOISE, f"upscale denoise: {upscale_denoise}\n", notes, flags = re.I)
+            notes = re.sub(REGEX_UPSCALE_DENOISE, f"upscale denoise: {upscale_denoise}\n", notes, flags = re.I, count = 1)
         else:
             insert_str += f"upscale denoise: {upscale_denoise}\n"
 
         cfg = self.spinner_cfg.GetValue()
         if re.search(REGEX_CFG, notes, re.I):
-            notes = re.sub(REGEX_CFG, f"cfg: {cfg}\n", notes, flags = re.I)
+            notes = re.sub(REGEX_CFG, f"cfg: {cfg}\n", notes, flags = re.I, count = 1)
         else:
             insert_str += f"cfg: {cfg}\n"
 
         steps = self.spinner_steps.GetValue()
         if re.search(REGEX_STEPS, notes, re.I):
-            notes = re.sub(REGEX_STEPS, f"steps: {steps}\n", notes, flags = re.I)
+            notes = re.sub(REGEX_STEPS, f"steps: {steps}\n", notes, flags = re.I, count = 1)
         else:
             insert_str += f"steps: {steps}\n"
 
@@ -973,27 +1029,37 @@ class PreviewGeneratorDialog(wx.Dialog):
         if firstTag != MODEL_SD_TURBO_TAG and firstTag != MODEL_SD_XL_TAG:
             clip = self.spinner_clip.GetValue()
             if re.search(REGEX_CLIP, notes, re.I):
-                notes = re.sub(REGEX_CLIP, f"clip: {clip}\n", notes, flags = re.I)
+                notes = re.sub(REGEX_CLIP, f"clip: {clip}\n", notes, flags = re.I, count = 1)
             else:
                 insert_str += f"clip: {clip}\n"
 
         upscale_factor = self.spinner_upscale_factor.GetValue()
         if re.search(REGEX_UPSCALE_FACTOR, notes, re.I):
-            notes = re.sub(REGEX_UPSCALE_FACTOR, f"upscale factor: {upscale_factor}\n", notes, flags = re.I)
+            notes = re.sub(REGEX_UPSCALE_FACTOR, f"upscale factor: {upscale_factor}\n", notes, flags = re.I, count = 1)
         else:
             insert_str += f"upscale factor: {upscale_factor}\n"
 
         add_noise = self.spinner_add_noise.GetValue()
         if not self.check_add_noise.GetValue():
             add_noise = 0
-        if re.search(REGEX_ADD_NOISE, notes, re.I):
-            notes = re.sub(REGEX_ADD_NOISE, f"add noise: {add_noise}\n", notes, flags = re.I)
+        re_result = re.finditer(REGEX_ADD_NOISE, notes, re.I)
+        count = sum(1 for match in re_result if not match.group(1))
+        if count:
+            notes = re.sub(REGEX_ADD_NOISE, lambda match: match.group(0) if match.group(1) else f"add noise: {add_noise}\n", notes, flags = re.I)
         else:
             insert_str += f"add noise: {add_noise}\n"
 
+        upscale_add_noise = self.spinner_upscale_add_noise.GetValue()
+        if not self.check_upscale_add_noise.GetValue():
+            upscale_add_noise = 0
+        if re.search(REGEX_UPSCALE_ADD_NOISE, notes, re.I):
+            notes = re.sub(REGEX_UPSCALE_ADD_NOISE, f"upscale add noise: {upscale_add_noise}\n", notes, flags = re.I, count = 1)
+        else:
+            insert_str += f"upscale add noise: {upscale_add_noise}\n"
+
         sampler = self.sampler.GetValue()
         if re.search(REGEX_SAMPLER, notes, re.I):
-            notes = re.sub(REGEX_SAMPLER, f"sampler: {sampler}\n", notes, flags = re.I)
+            notes = re.sub(REGEX_SAMPLER, f"sampler: {sampler}\n", notes, flags = re.I, count = 1)
         else:
             insert_str += f"sampler: {sampler}\n"
         
@@ -1002,7 +1068,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         if firstTag != MODEL_SD_TURBO_TAG:
             scheduler = self.scheduler.GetValue()
             if re.search(REGEX_SCHEDULER, notes, re.I):
-                notes = re.sub(REGEX_SCHEDULER, f"scheduler: {scheduler}\n", notes, flags = re.I)
+                notes = re.sub(REGEX_SCHEDULER, f"scheduler: {scheduler}\n", notes, flags = re.I, count = 1)
             else:
                 insert_str += f"scheduler: {scheduler}\n"
 
@@ -1011,7 +1077,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         if firstTag == MODEL_SD_LORA_TAG:
             lora_base = self.lora_base.GetValue()
             if re.search(REGEX_LORA_BASE, notes, re.I):
-                notes = re.sub(REGEX_LORA_BASE, f"lora base: {lora_base}\n", notes, flags = re.I)
+                notes = re.sub(REGEX_LORA_BASE, f"lora base: {lora_base}\n", notes, flags = re.I, count = 1)
             else:
                 insert_str += f"lora base: {lora_base}\n"
 
@@ -1075,21 +1141,24 @@ class PreviewGeneratorDialog(wx.Dialog):
         return tags
 
     def get_prompt_options(self):
+        prompt_before = self.text_prompt_before.GetValue().strip().replace("\n", " ,")
         return GeneratePreviewsOptions(
-            prompt_before = self.text_prompt_before.GetValue(),
-            prompt_after = self.text_prompt_after.GetValue(),
-            seed = int(self.spinner_seed.GetValue()),
-            denoise = float(self.spinner_denoise.GetValue()),
-            upscale_denoise = float(self.spinner_upscale_denoise.GetValue()),
-            cfg = int(self.spinner_cfg.GetValue()),
-            steps = int(self.spinner_steps.GetValue()),
-            clip = int(self.spinner_clip.GetValue()),
-            upscale_factor = float(self.spinner_upscale_factor.GetValue()),
-            add_noise = float(self.spinner_add_noise.GetValue()),
+            prompt_before=prompt_before,
+            prompt_after=self.text_prompt_after.GetValue(),
+            seed=int(self.spinner_seed.GetValue()),
+            denoise=float(self.spinner_denoise.GetValue()),
+            upscale_denoise=float(self.spinner_upscale_denoise.GetValue()),
+            cfg=int(self.spinner_cfg.GetValue()),
+            steps=int(self.spinner_steps.GetValue()),
+            clip=int(self.spinner_clip.GetValue()),
+            upscale_factor=float(self.spinner_upscale_factor.GetValue()),
+            add_noise=float(self.spinner_add_noise.GetValue()),
             check_add_noise=bool(self.check_add_noise.GetValue()),
-            sampler = self.sampler.GetValue(),
-            scheduler = self.scheduler.GetValue(),
-            lora_base = self.lora_base.GetValue(),
+            upscale_add_noise=float(self.spinner_upscale_add_noise.GetValue()),
+            check_upscale_add_noise=bool(self.check_upscale_add_noise.GetValue()),
+            sampler=self.sampler.GetValue(),
+            scheduler=self.scheduler.GetValue(),
+            lora_base=self.lora_base.GetValue(),
         )
 
     def assemble_prompt_data(self, item):
@@ -1108,6 +1177,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         clip = inputOptions.clip if inputOptions.clip != self.preview_options.clip else itemOptions.clip
         upscale_factor = inputOptions.upscale_factor if inputOptions.upscale_factor != self.preview_options.upscale_factor else itemOptions.upscale_factor
         add_noise = inputOptions.add_noise if inputOptions.add_noise != self.preview_options.add_noise else itemOptions.add_noise
+        upscale_add_noise = inputOptions.upscale_add_noise if inputOptions.upscale_add_noise != self.preview_options.upscale_add_noise else itemOptions.upscale_add_noise
         sampler = inputOptions.sampler if inputOptions.sampler != self.preview_options.sampler else itemOptions.sampler
         scheduler = inputOptions.scheduler if inputOptions.scheduler != self.preview_options.scheduler else itemOptions.scheduler
         lora_base = inputOptions.lora_base if inputOptions.lora_base != self.preview_options.lora_base else itemOptions.lora_base
@@ -1125,6 +1195,8 @@ class PreviewGeneratorDialog(wx.Dialog):
             upscale_factor = upscale_factor,
             add_noise = add_noise,
             check_add_noise = inputOptions.check_add_noise,
+            upscale_add_noise = upscale_add_noise,
+            check_upscale_add_noise = inputOptions.check_upscale_add_noise,
             sampler = sampler,
             scheduler = scheduler,
             lora_base = lora_base,
@@ -1170,7 +1242,6 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.result = None
         self.last_data = None
         self.upscaled = False
-        # self.image_panel.Clear()
         self.button_regenerate.Disable()
         self.button_upscale.Disable()
         self.button_ok.Disable()
@@ -1279,48 +1350,35 @@ class PreviewGeneratorDialog(wx.Dialog):
         if isinstance(itemsOrItems, list):
             item = itemsOrItems[0]
         notes = item.get("notes") or ""
+        def get_default_prompt(prompt_key, regex, default):
+            re_notes_prompt = re.search(regex, notes, re.I)
+            notes_prompt = re_notes_prompt.group(1).strip() if re_notes_prompt else default
+            prompt = notes_prompt.strip()
+            keywords = item[prompt_key]
+            if not keywords:
+                return prompt
+            if keywords.startswith(OVERRIDE_KEYWORD):
+                prompt = ""
+                keywords = keywords.replace(OVERRIDE_KEYWORD, "")
+            else:
+                keyToInsert = []
+                keywords = keywords.replace("\n", ", ")
+                keywordList = keywords.split(",")
+                for key in keywordList:
+                    key = key.strip()
+                    if key not in prompt:
+                        keyToInsert.append(key.strip())
+                if len(keyToInsert) > 0:
+                    keyStr = ", ".join(keyToInsert)
+                    keywords = f", {keyStr}"
+                else:
+                    keywords = ""
+            prompt += keywords
+            return prompt
         # build positive prompt
-        re_notes_positive = re.search(REGEX_POSITIVE, notes, re.I)
-        notes_positive = re_notes_positive.group(1).strip() if re_notes_positive else DEFAULT_POSITIVE
-        positive = notes_positive.strip()
-        posKey = item["keywords"]
-        if posKey:
-            if posKey.startswith(OVERRIDE_KEYWORD):
-                positive = ""
-                posKey = posKey.replace(OVERRIDE_KEYWORD, "")
-            else:
-                keyToInsert = []
-                posKeyList = posKey.split(",")
-                for key in posKeyList:
-                    if key not in positive:
-                        keyToInsert.append(key.strip())
-                if len(keyToInsert) > 0:
-                    keyStr = ",".join(keyToInsert)
-                    posKey = f", {keyStr}"
-                else:
-                    posKey = ""
-            positive += posKey
+        positive = get_default_prompt("keywords", REGEX_POSITIVE, DEFAULT_POSITIVE)
         # build negative prompt
-        re_notes_negative = re.search(REGEX_NEGATIVE, notes, re.I)
-        notes_negative = re_notes_negative.group(1).strip() if re_notes_negative else DEFAULT_NEGATIVE
-        negative = notes_negative.strip()
-        negKey = item["negative_keywords"]
-        if negKey:
-            if negKey.startswith(OVERRIDE_KEYWORD):
-                negative = ""
-                negKey = negKey.replace(OVERRIDE_KEYWORD, "")
-            else:
-                keyToInsert = []
-                negKeyList = negKey.split(",")
-                for key in negKeyList:
-                    if key not in negative:
-                        keyToInsert.append(key.strip())
-                if len(keyToInsert) > 0:
-                    keyStr = ",".join(keyToInsert)
-                    negKey = f", {keyStr}"
-                else:
-                    negKey = ""
-            negative += negKey
+        negative = get_default_prompt("negative_keywords", REGEX_NEGATIVE, DEFAULT_NEGATIVE)
         # build seed
         re_notes_seed = re.search(REGEX_SEED, notes, re.I)
         seed = int(re_notes_seed.group(1).strip()) if re_notes_seed else DEFAULT_SEED
@@ -1344,8 +1402,12 @@ class PreviewGeneratorDialog(wx.Dialog):
         re_notes_upscale_factor = re.search(REGEX_UPSCALE_FACTOR, notes, re.I)
         upscale_factor = float(re_notes_upscale_factor.group(1).strip()) if re_notes_upscale_factor else DEFAULT_UPSCALE_FACTOR
         # build add noise
-        re_notes_add_noise = re.search(REGEX_ADD_NOISE, notes, re.I)
-        add_noise = float(re_notes_add_noise.group(1).strip()) if re_notes_add_noise else DEFAULT_ADD_NOISE
+        re_result = re.finditer(REGEX_ADD_NOISE, notes, re.I)
+        re_notes_add_noise = next((match for match in re_result if not match.group(1)), None)
+        add_noise = float(re_notes_add_noise.group(2).strip()) if re_notes_add_noise else DEFAULT_ADD_NOISE
+        # build upscale add noise
+        re_notes_upscale_add_noise = re.search(REGEX_UPSCALE_ADD_NOISE, notes, re.I)
+        upscale_add_noise = float(re_notes_upscale_add_noise.group(1).strip()) if re_notes_upscale_add_noise else DEFAULT_UPSCALE_ADD_NOISE
         # build sampler
         re_notes_sampler = re.search(REGEX_SAMPLER, notes, re.I)
         sampler = re_notes_sampler.group(1).strip() if re_notes_sampler else DEFAULT_SAMPLER
@@ -1367,6 +1429,8 @@ class PreviewGeneratorDialog(wx.Dialog):
             upscale_factor = upscale_factor,
             add_noise = add_noise,
             check_add_noise = add_noise != 0,
+            upscale_add_noise = upscale_add_noise,
+            check_upscale_add_noise = upscale_add_noise != 0,
             sampler = sampler,
             scheduler = scheduler,
             lora_base = lora_base

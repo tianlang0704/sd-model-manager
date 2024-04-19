@@ -11,16 +11,28 @@ import wx.lib.mixins.listctrl as listmix
 from gui.rating_ctrl import RatingCtrl, EVT_RATING_CHANGED
 from gui.utils import PUBSUB_HUB
 
+MODEL_SD_MERGE_TURBO_TAG = "sd-merge-turbo"
+MODEL_SD_TURBO_TAG = "sd-turbo"
+MODEL_SD_XL_TAG = "sd-xl"
+MODEL_SD_15_TAG = "sd-1.5"
+MODEL_SD_14_TAG = "sd-1.4"
+MODEL_SD_LORA_TAG = "sd-lora"
+MODEL_SD_VAE_TAG = "sd-vae"
+MODEL_SD_EMBEDDING_TAG = "sd-embedding"
+MODEL_SD_CONTROLNET_TAG = "sd-controlnet"
+MODEL_SD_INPAINT_TAG = "sd-inpaint"
+
 taglist = [
-    "sd-turbo", 
-    "sd-xl", 
-    "sd-1.5", 
-    "sd-1.4", 
-    "sd-lora", 
-    "sd-vae",
-    "sd-embedding",
-    "sd-controlnet",
-    "sd-inpaint",
+    MODEL_SD_MERGE_TURBO_TAG,
+    MODEL_SD_TURBO_TAG,
+    MODEL_SD_XL_TAG,
+    MODEL_SD_15_TAG,
+    MODEL_SD_14_TAG,
+    MODEL_SD_LORA_TAG,
+    MODEL_SD_VAE_TAG,
+    MODEL_SD_EMBEDDING_TAG,
+    MODEL_SD_CONTROLNET_TAG,
+    MODEL_SD_INPAINT_TAG,
 ]
 
 class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):

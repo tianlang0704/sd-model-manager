@@ -230,9 +230,9 @@ class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):
         self.clear_changes()
 
     async def prompt_commit_changes(self):
+        self.original_values = {}
         if not self.selected_items:
             self.changes = {}
-            self.original_values = {}
             return
 
         if not self.changes or self.is_committing:
@@ -250,6 +250,7 @@ class PropertiesPanel(wx.lib.scrolledpanel.ScrolledPanel):
                 result = await wxasync.AsyncShowDialogModal(dlg)
                 if result == wx.ID_YES:
                     await self.commit_changes()
+                    self.original_values = {}
             else:
                 await self.commit_changes()
 

@@ -26,7 +26,6 @@ from gui.panels.properties import MODEL_SD_15_TAG\
     , MODEL_SD_MERGE_TURBO_TAG\
     , MODEL_SD_LORA_TAG
 
-OVERRIDE_KEYWORD = "override:"
 DEFAULT_POSITIVE = "masterpiece, 1girl, solo"
 DEFAULT_NEGATIVE = "(worst quality, low quality:1.2)"
 DEFAULT_SEED = -1
@@ -37,25 +36,27 @@ DEFAULT_STEPS = 20
 DEFAULT_CLIP = -1
 DEFAULT_UPSCALE_FACTOR = 1.5
 DEFAULT_ADD_NOISE = 0.0
-DEFAULT_UPSCALE_ADD_NOISE = 0.0
 DEFAULT_SAMPLER = "euler_ancestral"
 DEFAULT_SCHEDULER = "normal"
 DEFAULT_LORA_BASE = "AOM3.safetensors"
 REGEX_POSITIVE = r"positive:(.+)\n*"
 REGEX_NEGATIVE = r"negative:(.+)\n*"
 REGEX_SEED = r"seed:\s*(\-?\s*\d+)\n*"
-REGEX_DENOISE = r"(upscale)?[\t\f \-_]*denoise:\s*?(\-?\s*\d+\s*?\.?\s*?\d*)\n*" #workaround for detecting upscale denoise
-REGEX_UPSCALE_DENOISE = r"upscale[\t\f \-_]*denoise:\s*(\-?\s*\d+\s*\.?\s*\d*)\n*"
+REGEX_DENOISE = r"denoise:\s*?(\-?\s*\d+\s*?\.?\s*?\d*)\n*"
 REGEX_CFG = r"cfg:\s*(\d+)\n*"
 REGEX_STEPS = r"steps:\s*(\d+)\n*"
 REGEX_CLIP = r"clip:\s*(\-?\s*\d+)\n*"
 REGEX_UPSCALE_FACTOR = r"upscale[\t\f \-_]*factor:\s*(\d+\s*\.?\s*\d*)\n*"
-REGEX_ADD_NOISE = r"(upscale)?[\t\f \-_]*add[\t\f \-_]*noise:\s*(\-?\s*\d+\s*\.?\s*\d*)\n*"
-REGEX_UPSCALE_ADD_NOISE = r"upscale[\t\f \-_]*add[\t\f \-_]*noise:\s*(\-?\s*\d+\s*\.?\s*\d*)\n*"
+REGEX_ADD_NOISE = r"add[\t\f \-_]*noise:\s*(\-?\s*\d+\s*\.?\s*\d*)\n*"
 REGEX_SAMPLER = r"sampler:\s*([\w\.\-_]+)\n*"
 REGEX_SCHEDULER = r"scheduler:\s*([\w\.\-_]+)\n*"
 REGEX_LORA_BASE = r"lora[\t\f \-_]*base:\s*([\w\.\-_ ]+)\n*"
+REGEX_PREFIX = r"({0})?[\t\f \-_]*{1}"
+# (generate)?[\t\f \-_]*positive:(.+)\n*
+REGEX_GEN_PREFIX = "generate"
+REGEX_UPS_PREFIX = "upscale"
 SEED_RANDOM_MAX = 2**32
+
 
 def load_prompt(name):
     with open(
@@ -66,19 +67,16 @@ def load_prompt(name):
 
 @dataclass
 class GeneratePreviewsOptions:
-    prompt_before: str
-    prompt_after: str
+    positive: str
+    negative: str
     seed: int
     denoise: float
-    upscale_denoise: float
     cfg: int
     steps: int
     clip: int
     upscale_factor: float
     add_noise: float
     check_add_noise: bool
-    upscale_add_noise: float
-    check_upscale_add_noise: bool
     sampler: str
     scheduler: str
     lora_base: str
@@ -86,35 +84,24 @@ class GeneratePreviewsOptions:
 
 @dataclass
 class PreviewPromptData:
-    seed: int
-    denoise: float
-    upscale_denoise: float
     checkpoint: str
-    positive: str
-    negative: str
-    cfg: int
-    steps: int
-    clip: int
-    upscale_factor: float
-    add_noise: float
-    check_add_noise: bool
-    upscale_add_noise: float
-    check_upscale_add_noise: bool
-    sampler: str
-    scheduler: str
-    lora_base: str
     tags: str
+    gen_options: GeneratePreviewsOptions
+    ups_options: GeneratePreviewsOptions
+    current_options: GeneratePreviewsOptions = None
 
     def get_node_with_type(self, prompt, type_list):
         if isinstance(type_list, str):
             type_list = [type_list]
+        res_list = []
         for key, value in prompt.items():
             class_type = value.get("class_type")
             if class_type is None:
                 continue
             if class_type in type_list:
-                return key
-        return None
+                res_list.append(key)
+        first = res_list[0] if len(res_list) > 0 else None
+        return first, res_list
 
     def add_noise_node(
         self, 
@@ -155,10 +142,10 @@ class PreviewPromptData:
         add_noise_subnodes["42"]["inputs"]["model"] = [in_model_node, in_model_output]
         prompt[out_latent_node]["inputs"][out_latent_input_name] = [node_prefix + "43", 0]
 
-        add_noise_subnodes["54"]["inputs"]["scheduler"] = self.scheduler
-        add_noise_subnodes["54"]["inputs"]["steps"] = self.steps
-        add_noise_subnodes["54"]["inputs"]["denoise"] = self.denoise
-        add_noise_subnodes["42"]["inputs"]["seed"] = self.seed if add_noise > 0 else random.randint(0, SEED_RANDOM_MAX)
+        add_noise_subnodes["54"]["inputs"]["scheduler"] = self.current_options.scheduler
+        add_noise_subnodes["54"]["inputs"]["steps"] = self.current_options.steps
+        add_noise_subnodes["54"]["inputs"]["denoise"] = self.current_options.denoise
+        add_noise_subnodes["42"]["inputs"]["seed"] = self.current_options.seed if add_noise > 0 else random.randint(0, SEED_RANDOM_MAX)
         add_noise_subnodes["43"]["inputs"]["strength"] = abs(add_noise)
             
         keys = list(add_noise_subnodes.keys())
@@ -167,6 +154,7 @@ class PreviewPromptData:
         prompt.update(add_noise_subnodes)
 
     def to_prompt(self):
+        self.current_options = self.gen_options
         firstTag = ""
         if self.tags:
             firstTag = self.tags.split(",")[0].strip()
@@ -182,85 +170,87 @@ class PreviewPromptData:
                 return keywordToFunc[keyword]()
         return self.to_prompt_default()
     
+    def guess_fit_current_options_to_prompt(self, prompt):
+        node, node_list = self.get_node_with_type(prompt, ["KSampler"])
+        for key in node_list:
+            prompt[key]["inputs"]["seed"] = self.current_options.seed
+            prompt[key]["inputs"]["denoise"] = self.current_options.denoise
+            prompt[key]["inputs"]["cfg"] = self.current_options.cfg
+            prompt[key]["inputs"]["steps"] = self.current_options.steps
+            prompt[key]["inputs"]["sampler_name"] = self.current_options.sampler
+            prompt[key]["inputs"]["scheduler"] = self.current_options.scheduler
+        node, node_list = self.get_node_with_type(prompt, ["KSamplerAdvanced"])
+        for key in node_list:
+            prompt[key]["inputs"]["noise_seed"] = self.current_options.seed
+            prompt[key]["inputs"]["cfg"] = self.current_options.cfg
+            prompt[key]["inputs"]["steps"] = self.current_options.steps
+            prompt[key]["inputs"]["sampler_name"] = self.current_options.sampler
+            prompt[key]["inputs"]["scheduler"] = self.current_options.scheduler
+        node, node_list = self.get_node_with_type(prompt, ["SamplerCustom"])
+        for key in node_list:
+            prompt[key]["inputs"]["noise_seed"] = self.current_options.seed
+            prompt[key]["inputs"]["cfg"] = self.current_options.cfg
+            prompt[key]["inputs"]["steps"] = self.current_options.steps
+        node, node_list = self.get_node_with_type(prompt, ["SDTurboScheduler"])
+        for key in node_list:
+            prompt[key]["inputs"]["steps"] = self.current_options.steps
+            prompt[key]["inputs"]["denoise"] = self.current_options.denoise
+        node, node_list = self.get_node_with_type(prompt, ["KSamplerSelect"])
+        for key in node_list:
+            prompt[key]["inputs"]["sampler_name"] = self.current_options.sampler
+        node, node_list = self.get_node_with_type(prompt, ["CheckpointLoaderSimple"])
+        for key in node_list:
+            prompt[key]["inputs"]["ckpt_name"] = self.checkpoint
+        node, node_list = self.get_node_with_type(prompt, ["CLIPTextEncode"])
+        for index, key in enumerate(node_list):
+            if index % 2 == 0:
+                prompt[key]["inputs"]["text"] = self.current_options.positive
+            else:
+                prompt[key]["inputs"]["text"] = self.current_options.negative
+        node, node_list = self.get_node_with_type(prompt, ["CLIPSetLastLayer"])
+        for key in node_list:
+            prompt[key]["inputs"]["stop_at_clip_layer"] = self.current_options.clip
+        node, node_list = self.get_node_with_type(prompt, ["LatentUpscaleBy"])
+        for key in node_list:
+            prompt[key]["inputs"]["scale_by"] = self.current_options.upscale_factor
+        return prompt
+            
     def to_prompt_lora(self):
         prompt = load_prompt("lora.json")
-        prompt["3"]["inputs"]["seed"] = self.seed
-        prompt["3"]["inputs"]["denoise"] = self.denoise
-        prompt["3"]["inputs"]["cfg"] = self.cfg
-        prompt["3"]["inputs"]["steps"] = self.steps
-        prompt["3"]["inputs"]["sampler_name"] = self.sampler
-        prompt["3"]["inputs"]["scheduler"] = self.scheduler
+        self.guess_fit_current_options_to_prompt(prompt)
         prompt["230"]["inputs"]["lora_name"] = self.checkpoint
-        prompt["6"]["inputs"]["text"] = self.positive
-        prompt["7"]["inputs"]["text"] = self.negative
-        prompt["231"]["inputs"]["stop_at_clip_layer"] = self.clip
-        prompt["4"]["inputs"]["ckpt_name"] = self.lora_base
-        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.add_noise, check_add_noise=self.check_add_noise)
+        prompt["4"]["inputs"]["ckpt_name"] = self.current_options.lora_base
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.current_options.add_noise, check_add_noise=self.current_options.check_add_noise)
         return prompt
     
     def to_prompt_merge_turbo(self):
         prompt = load_prompt("merge_turbo.json")
-        prompt["5"]["inputs"]["seed"] = self.seed
-        prompt["5"]["inputs"]["denoise"] = self.denoise
-        prompt["5"]["inputs"]["cfg"] = self.cfg
-        prompt["5"]["inputs"]["steps"] = self.steps
-        prompt["5"]["inputs"]["sampler_name"] = self.sampler
-        prompt["5"]["inputs"]["scheduler"] = self.scheduler
-        prompt["2"]["inputs"]["stop_at_clip_layer"] = self.clip
-        prompt["1"]["inputs"]["ckpt_name"] = self.checkpoint
-        prompt["3"]["inputs"]["text"] = self.positive
-        prompt["4"]["inputs"]["text"] = self.negative
-        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.add_noise, check_add_noise=self.check_add_noise)
+        self.guess_fit_current_options_to_prompt(prompt)
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.current_options.add_noise, check_add_noise=self.current_options.check_add_noise)
         return prompt
 
     def to_prompt_turbo(self):
         prompt = load_prompt("turbo.json")
-        prompt["13"]["inputs"]["cfg"] = self.cfg
-        prompt["13"]["inputs"]["noise_seed"] = self.seed
-        prompt["20"]["inputs"]["ckpt_name"] = self.checkpoint
-        prompt["6"]["inputs"]["text"] = self.positive
-        prompt["7"]["inputs"]["text"] = self.negative
-        prompt["22"]["inputs"]["steps"] = self.steps
-        prompt["22"]["inputs"]["denoise"] = self.denoise
-        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.add_noise, check_add_noise=self.check_add_noise)
+        self.guess_fit_current_options_to_prompt(prompt)
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.current_options.add_noise, check_add_noise=self.current_options.check_add_noise)
         return prompt
 
     def to_prompt_xl(self):
         prompt = load_prompt("xl.json")
-        prompt["10"]["inputs"]["noise_seed"] = self.seed
-        prompt["10"]["inputs"]["cfg"] = self.cfg
-        prompt["11"]["inputs"]["cfg"] = self.cfg
-        prompt["10"]["inputs"]["sampler_name"] = self.sampler
-        prompt["11"]["inputs"]["sampler_name"] = self.sampler
-        prompt["10"]["inputs"]["scheduler"] = self.scheduler
-        prompt["11"]["inputs"]["scheduler"] = self.scheduler
-        prompt["4"]["inputs"]["ckpt_name"] = self.checkpoint
-        prompt["12"]["inputs"]["ckpt_name"] = self.checkpoint
-        prompt["6"]["inputs"]["text"] = self.positive
-        prompt["7"]["inputs"]["text"] = self.negative
-        prompt["15"]["inputs"]["text"] = self.positive
-        prompt["16"]["inputs"]["text"] = self.negative
-        prompt["53"]["inputs"]["value"] = self.steps
-        prompt["54"]["inputs"]["value"] = int(self.steps * self.denoise)
-        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.add_noise, check_add_noise=self.check_add_noise)
+        self.guess_fit_current_options_to_prompt(prompt)
+        prompt["53"]["inputs"]["value"] = self.current_options.steps
+        prompt["54"]["inputs"]["value"] = int(self.current_options.steps * self.current_options.denoise)
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.current_options.add_noise, check_add_noise=self.current_options.check_add_noise)
         return prompt
 
     def to_prompt_default(self):
         prompt = load_prompt("default.json")
-        prompt["3"]["inputs"]["seed"] = self.seed
-        prompt["3"]["inputs"]["denoise"] = self.denoise
-        prompt["3"]["inputs"]["cfg"] = self.cfg
-        prompt["3"]["inputs"]["steps"] = self.steps
-        prompt["3"]["inputs"]["sampler_name"] = self.sampler
-        prompt["3"]["inputs"]["scheduler"] = self.scheduler
-        prompt["4"]["inputs"]["ckpt_name"] = self.checkpoint
-        prompt["6"]["inputs"]["text"] = self.positive
-        prompt["7"]["inputs"]["text"] = self.negative
-        prompt["31"]["inputs"]["stop_at_clip_layer"] = self.clip
-        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.add_noise, check_add_noise=self.check_add_noise)
+        self.guess_fit_current_options_to_prompt(prompt)
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.current_options.add_noise, check_add_noise=self.current_options.check_add_noise)
         return prompt
 
     def to_hr_prompt(self, image):
+        self.current_options = self.ups_options
         firstTag = ""
         if self.tags:
             firstTag = self.tags.split(",")[0].strip()
@@ -283,87 +273,44 @@ class PreviewPromptData:
 
     def to_prompt_default_hr(self, filename):
         prompt = load_prompt("default-hr.json")
-        prompt["11"]["inputs"]["seed"] = self.seed
-        prompt["11"]["inputs"]["denoise"] = self.upscale_denoise
-        prompt["11"]["inputs"]["cfg"] = self.cfg
-        prompt["11"]["inputs"]["steps"] = self.steps
-        prompt["11"]["inputs"]["sampler_name"] = self.sampler
-        prompt["11"]["inputs"]["scheduler"] = self.scheduler
-        prompt["16"]["inputs"]["ckpt_name"] = self.checkpoint
-        prompt["6"]["inputs"]["text"] = self.positive
-        prompt["7"]["inputs"]["text"] = self.negative
-        prompt["20"]["inputs"]["scale_by"] = self.upscale_factor
+        self.guess_fit_current_options_to_prompt(prompt)
         prompt["18"]["inputs"]["image"] = f"{filename} [output]"
-        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.upscale_add_noise, check_add_noise=self.check_upscale_add_noise)
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.current_options.add_noise, check_add_noise=self.current_options.check_add_noise)
         return prompt
     
     def to_prompt_lora_hr(self, filename):
         prompt = load_prompt("lora-hr.json")
-        prompt["11"]["inputs"]["seed"] = self.seed
-        prompt["11"]["inputs"]["denoise"] = self.upscale_denoise
-        prompt["11"]["inputs"]["cfg"] = self.cfg
-        prompt["11"]["inputs"]["steps"] = self.steps
-        prompt["11"]["inputs"]["sampler_name"] = self.sampler
-        prompt["11"]["inputs"]["scheduler"] = self.scheduler
-        prompt["6"]["inputs"]["text"] = self.positive
-        prompt["7"]["inputs"]["text"] = self.negative
-        prompt["16"]["inputs"]["ckpt_name"] = self.lora_base
+        self.guess_fit_current_options_to_prompt(prompt)
         prompt["22"]["inputs"]["lora_name"] = self.checkpoint
-        prompt["20"]["inputs"]["scale_by"] = self.upscale_factor
+        prompt["16"]["inputs"]["ckpt_name"] = self.current_options.lora_base
         prompt["18"]["inputs"]["image"] = f"{filename} [output]"
-        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.upscale_add_noise, check_add_noise=self.check_upscale_add_noise)
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.current_options.add_noise, check_add_noise=self.current_options.check_add_noise)
         return prompt
 
     def to_prompt_xl_hr(self, filename):
         prompt = load_prompt("xl-hr.json")
-        prompt["27"]["inputs"]["seed"] = self.seed
-        prompt["27"]["inputs"]["start_at_step"] = int(self.steps * (1 - self.upscale_denoise))
-        prompt["27"]["inputs"]["cfg"] = self.cfg
-        prompt["27"]["inputs"]["steps"] = self.steps
-        prompt["27"]["inputs"]["sampler_name"] = self.sampler
-        prompt["27"]["inputs"]["scheduler"] = self.scheduler
-        prompt["12"]["inputs"]["ckpt_name"] = self.checkpoint
-        prompt["15"]["inputs"]["text"] = self.positive
-        prompt["16"]["inputs"]["text"] = self.negative
-        prompt["52"]["inputs"]["scale_by"] = self.upscale_factor
+        self.guess_fit_current_options_to_prompt(prompt)
+        prompt["27"]["inputs"]["start_at_step"] = int(self.current_options.steps * (1 - self.current_options.denoise))
         prompt["24"]["inputs"]["image"] = f"{filename} [output]"
-        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.upscale_add_noise, check_add_noise=self.check_upscale_add_noise)
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.current_options.add_noise, check_add_noise=self.current_options.check_add_noise)
         return prompt
     
     def to_prompt_turbo_hr(self, filename):
         prompt = load_prompt("turbo-hr.json")
-        prompt["13"]["inputs"]["noise_seed"] = self.seed
-        prompt["13"]["inputs"]["cfg"] = self.cfg
-        prompt["22"]["inputs"]["denoise"] = self.upscale_denoise
-        prompt["22"]["inputs"]["steps"] = self.steps
-        prompt["14"]["inputs"]["sampler_name"] = self.sampler
-        prompt["20"]["inputs"]["ckpt_name"] = self.checkpoint
-        prompt["6"]["inputs"]["text"] = self.positive
-        prompt["7"]["inputs"]["text"] = self.negative
-        prompt["42"]["inputs"]["scale_by"] = self.upscale_factor
+        self.guess_fit_current_options_to_prompt(prompt)
         prompt["38"]["inputs"]["image"] = f"{filename} [output]"
-        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.upscale_add_noise, check_add_noise=self.check_upscale_add_noise)
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.current_options.add_noise, check_add_noise=self.current_options.check_add_noise)
         return prompt
     
     def to_prompt_merge_turbo_hr(self, filename):
         prompt = load_prompt("merge_turbo-hr.json")
-        prompt["5"]["inputs"]["seed"] = self.seed
-        prompt["5"]["inputs"]["denoise"] = self.upscale_denoise
-        prompt["5"]["inputs"]["cfg"] = self.cfg
-        prompt["5"]["inputs"]["steps"] = self.steps
-        prompt["5"]["inputs"]["sampler_name"] = self.sampler
-        prompt["5"]["inputs"]["scheduler"] = self.scheduler
-        prompt["2"]["inputs"]["stop_at_clip_layer"] = self.clip
-        prompt["1"]["inputs"]["ckpt_name"] = self.checkpoint
-        prompt["3"]["inputs"]["text"] = self.positive
-        prompt["4"]["inputs"]["text"] = self.negative
-        prompt["13"]["inputs"]["scale_by"] = self.upscale_factor
+        self.guess_fit_current_options_to_prompt(prompt)
         prompt["10"]["inputs"]["image"] = f"{filename} [output]"
-        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.upscale_add_noise, check_add_noise=self.check_upscale_add_noise)
+        self.add_noise_node(prompt=prompt, node_prefix="999", add_noise=self.current_options.add_noise, check_add_noise=self.current_options.check_add_noise)
         return prompt
+
 class CancelException(Exception):
     pass
-
 
 def find_preview_images(basepath):
     i = 0
@@ -384,111 +331,14 @@ def find_preview_images(basepath):
 
     return images
 
-KEY_POSITIVE = "processed_positive"
-KEY_NEGATIVE = "processed_negative"
-
-#file drop target
-class FileDropTarget(wx.FileDropTarget):
-    def __init__(self, window):
-        wx.FileDropTarget.__init__(self)
-        self.window = window
-
-    def OnDropFiles(self, x, y, filenames):
-        return self.window.OnDropFiles(x, y, filenames)
-
-class PreviewGeneratorDialog(wx.Dialog):
-    def __init__(self, parent, app, items, duplicate_op):
-        main_name = items[0]["filename"] if items and len(items) > 0 else ""
-        suffix = f" and other {len(items) - 1} model(s)" if len(items) > 1 else ""
-        super(PreviewGeneratorDialog, self).__init__(
-            parent, -1, f"Preview Generator: {main_name}{suffix}", size=app.FromDIP(700, 500)
-        )
+class GenerationOptionsPanel(wx.Panel):
+    def __init__(self, parent, app, preview_options, is_upscale=False, **kwargs):
+        wx.Panel.__init__(self, parent, id=wx.ID_ANY, **kwargs)
         self.app = app
-        self.comfy_api = ComfyAPI(self.app)
-        self.duplicate_op = duplicate_op  # "replace", "append"
-        self.items = items
-        self.preview_options = self.item_to_preview_options(items)
-        self.result = None
-        self.last_data = None
-        self.last_output = None
-        self.executing_node_id = None
-        self.upscaled = False
-        self.last_seed = -1
-        self.last_upscale_seed = -1
-        self.node_text = ""
+        self.dialog = parent.GetParent()
+        self.preview_options = preview_options
 
-        utils.set_icons(self)
-        self.autogen = False
-
-        self.SetDropTarget(FileDropTarget(self))
-
-        # Parameter controls
-        self.text_prompt_before = wx.TextCtrl(
-            self,
-            id=wx.ID_ANY,
-            value=self.preview_options.prompt_before,
-            size=self.Parent.FromDIP(wx.Size(250, 100)),
-            style=wx.TE_MULTILINE | wx.TE_PROCESS_ENTER,
-        )
-        
-        
-        self.text_prompt_after = wx.TextCtrl(
-            self,
-            id=wx.ID_ANY,
-            value=self.preview_options.prompt_after,
-            size=self.Parent.FromDIP(wx.Size(250, 100)),
-            style=wx.TE_MULTILINE | wx.TE_PROCESS_ENTER,
-        )
-
-        # Status controls/buttons
-        self.status_text = wx.StaticText(self, -1, "Ready")
-        self.models_text = wx.StaticText(self, wx.ID_ANY, label=f"Selected models: {len(self.items)}")
-        self.gauge = wx.Gauge(self, -1, 100, size=app.FromDIP(800, 32))
-        self.image_panel = ImagePanel(self, style=wx.SUNKEN_BORDER, size=app.FromDIP(512, 512))
-        main_item = items[0] if items and len(items) > 0 else None
-        preview_image = None
-        if main_item is not None:
-            filepath = main_item["filepath"]
-            basepath = os.path.splitext(filepath)[0]
-            images = find_preview_images(basepath)
-            if len(images) > 0:
-                preview_image = images[0]
-                self.set_preview_image(preview_image)
-
-        self.button_save_notes = wx.Button(self, wx.ID_SAVE, "Save Notes")
-        self.button_regenerate = wx.Button(self, wx.ID_HELP, "Generate")
-        self.button_upscale = wx.Button(self, wx.ID_APPLY, "Upscale")
-        if not preview_image:
-            self.button_upscale.Disable()
-        self.button_cancel = wx.Button(self, wx.ID_CANCEL, "Cancel")
-        self.button_ok = wx.Button(self, wx.ID_OK, "OK")
-        self.button_ok.Disable()
-
-        def OnEnter(e):
-            if wx.GetKeyState(wx.WXK_SHIFT):
-                self.OnRegenerate(e)
-            if wx.GetKeyState(wx.WXK_ALT):
-                self.OnUpscale(e)
-        self.Bind(wx.EVT_TEXT_ENTER, OnEnter)
-        self.Bind(wx.EVT_BUTTON, self.OnRegenerate, id=wx.ID_HELP)
-        self.Bind(wx.EVT_BUTTON, self.OnUpscale, id=wx.ID_APPLY)
-        self.Bind(wx.EVT_BUTTON, self.OnCancel, id=wx.ID_CANCEL)
-        wxasync.AsyncBind(wx.EVT_BUTTON, self.OnSave, self.button_save_notes, id=wx.ID_SAVE)
-        wxasync.AsyncBind(wx.EVT_BUTTON, self.OnOK, self.button_ok, id=wx.ID_OK)
-        wxasync.AsyncBind(wx.EVT_CLOSE, self.OnClose, self)
-
-        sizerB = wx.BoxSizer(wx.HORIZONTAL)
-        sizerB.Add(self.button_ok, 0, wx.ALL, 5)
-        sizerB.Add(self.button_cancel, 0, wx.ALL, 5)
-        sizerB.Add(self.button_upscale, 0, wx.ALL, 5)
-        sizerB.Add(self.button_regenerate, 0, wx.ALL, 5)
-        sizerB.Add(self.button_save_notes, 0, wx.ALL, 5)
-
-        sizerLeft = wx.BoxSizer(wx.VERTICAL)
-        sizerLeft.Add(self.image_panel)
-        sizerLeft.AddSpacer(8)
-        sizerLeft.Add(self.status_text)
-
+        sizerRight = wx.StaticBoxSizer(wx.VERTICAL, self)
         sizerRightAfter = wx.BoxSizer(wx.HORIZONTAL)
         sizerRightAfter.Add(
             wx.StaticText(self, wx.ID_ANY, label="Seed"),
@@ -571,7 +421,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             # size=self.Parent.FromDIP(wx.Size(140, 25)),
         )
         sizerRightAfterCFGStepClip.Add(self.spinner_clip, proportion=1, flag=wx.ALL, border=5)
-        firstTagList = self.get_first_tag_list()
+        firstTagList = self.dialog.get_first_tag_list()
         show_clip = False
         if sum(1 for tag in firstTagList if tag != MODEL_SD_TURBO_TAG and tag != MODEL_SD_XL_TAG) > 0:
             show_clip = True
@@ -599,28 +449,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.spinner_denoise.SetDigits(2)
         sizerRightAfterDenoise.Add(self.spinner_denoise, proportion=1, flag=wx.ALL, border=5)
 
-        sizerRightAfterDenoise.Add(
-            wx.StaticText(self, wx.ID_ANY, label="Upscale Denoise"),
-            proportion=0,
-            border=5,
-            flag=wx.ALL,
-        )
-        self.spinner_upscale_denoise = floatspin.FloatSpin(
-            self,
-            id=wx.ID_ANY,
-            min_val=0,
-            max_val=1,
-            increment=0.01,
-            value=self.preview_options.upscale_denoise,
-            agwStyle=floatspin.FS_LEFT,
-            # size=self.Parent.FromDIP(wx.Size(140, 25)),
-        )
-        self.spinner_upscale_denoise.SetFormat("%f")
-        self.spinner_upscale_denoise.SetDigits(2)
-        sizerRightAfterDenoise.Add(self.spinner_upscale_denoise, proportion=1, flag=wx.ALL, border=5)
-
-        sizerRightAfterAddNoise = wx.BoxSizer(wx.HORIZONTAL)
-        self.check_add_noise = wx.CheckBox(self, wx.ID_ANY, label="Noise")
+        self.check_add_noise = wx.CheckBox(self, wx.ID_ANY, label="Add Noise")
         self.check_add_noise.SetValue(self.preview_options.check_add_noise)
         self.temp_add_noise = self.preview_options.add_noise
         def OnAddNoiseCheck(e):
@@ -629,7 +458,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             else:
                 self.spinner_add_noise.SetValue(self.temp_add_noise)
         self.check_add_noise.Bind(wx.EVT_CHECKBOX, OnAddNoiseCheck)
-        sizerRightAfterAddNoise.Add(self.check_add_noise, proportion=0, border=5, flag=wx.TOP|wx.BOTTOM)
+        sizerRightAfterDenoise.Add(self.check_add_noise, proportion=0, border=5, flag=wx.TOP|wx.BOTTOM)
         self.spinner_add_noise = floatspin.FloatSpin(
             self,
             id=wx.ID_ANY,
@@ -642,7 +471,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         )
         self.spinner_add_noise.SetFormat("%f")
         self.spinner_add_noise.SetDigits(3)
-        sizerRightAfterAddNoise.Add(self.spinner_add_noise, proportion=1, flag=wx.ALL, border=5)
+        sizerRightAfterDenoise.Add(self.spinner_add_noise, proportion=1, flag=wx.ALL, border=5)
         def OnAddNoiseChange(e):
             value = float(e.GetString())
             if value != 0:
@@ -650,39 +479,10 @@ class PreviewGeneratorDialog(wx.Dialog):
             self.check_add_noise.SetValue(value != 0)
         self.spinner_add_noise.Bind(wx.EVT_TEXT, OnAddNoiseChange)
         
-        self.check_upscale_add_noise = wx.CheckBox(self, wx.ID_ANY, label="Upscale N.")
-        self.check_upscale_add_noise.SetValue(self.preview_options.check_upscale_add_noise)
-        self.temp_upscale_add_noise = self.preview_options.upscale_add_noise
-        def OnUpscaleAddNoiseCheck(e):
-            if not self.check_upscale_add_noise.GetValue():
-                self.spinner_upscale_add_noise.SetValue(0)
-            else:
-                self.spinner_upscale_add_noise.SetValue(self.temp_upscale_add_noise)
-        self.check_upscale_add_noise.Bind(wx.EVT_CHECKBOX, OnUpscaleAddNoiseCheck)
-        sizerRightAfterAddNoise.Add(self.check_upscale_add_noise, proportion=0, border=5, flag=wx.TOP|wx.BOTTOM)
-        self.spinner_upscale_add_noise = floatspin.FloatSpin(
-            self,
-            id=wx.ID_ANY,
-            min_val=-10,
-            max_val=10,
-            increment=0.01,
-            value=self.preview_options.upscale_add_noise,
-            agwStyle=floatspin.FS_LEFT,
-            size=self.Parent.FromDIP(wx.Size(60, 25)),
-        )
-        self.spinner_upscale_add_noise.SetFormat("%f")
-        self.spinner_upscale_add_noise.SetDigits(3)
-        sizerRightAfterAddNoise.Add(self.spinner_upscale_add_noise, proportion=1, flag=wx.ALL, border=5)
-        def OnUpscaleAddNoiseChange(e):
-            value = float(e.GetString())
-            if value != 0:
-                self.temp_upscale_add_noise = value
-            self.check_upscale_add_noise.SetValue(value != 0)
-        self.spinner_upscale_add_noise.Bind(wx.EVT_TEXT, OnUpscaleAddNoiseChange)
-        
         sizerRightAfterUpscale = wx.BoxSizer(wx.HORIZONTAL)
+        self.label_upscale_factor = wx.StaticText(self, wx.ID_ANY, label="Upscale Factor")
         sizerRightAfterUpscale.Add(
-            wx.StaticText(self, wx.ID_ANY, label="Upscale Factor"),
+            self.label_upscale_factor,
             proportion=0,
             border=5,
             flag=wx.ALL,
@@ -700,6 +500,8 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.spinner_upscale_factor.SetFormat("%f")
         self.spinner_upscale_factor.SetDigits(2)
         sizerRightAfterUpscale.Add(self.spinner_upscale_factor, proportion=1, flag=wx.ALL, border=5)
+        self.label_upscale_factor.Show(is_upscale)
+        self.spinner_upscale_factor.Show(is_upscale)
 
         sizerRightAfterSampler = wx.BoxSizer(wx.HORIZONTAL)
         sizerRightAfterSampler.Add(
@@ -763,7 +565,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             choices=choices, style=wx.TE_PROCESS_ENTER
         )
         sizerRightAfterScheduler.Add(self.scheduler, proportion=1, flag=wx.ALL, border=5)
-        firstTagList = self.get_first_tag_list()
+        firstTagList = self.dialog.get_first_tag_list()
         show_scheduler = False
         if sum(1 for tag in firstTagList if tag != MODEL_SD_TURBO_TAG) > 0:
             show_scheduler = True
@@ -825,33 +627,136 @@ class PreviewGeneratorDialog(wx.Dialog):
         wxasync.AsyncBind(wx.EVT_TEXT, OnLoraBaseChange, self.lora_base)
 
         sizerRightAfterBaseLora.Add(self.lora_base, proportion=1, flag=wx.ALL, border=5)
-        firstTagList = self.get_first_tag_list()
+        firstTagList = self.dialog.get_first_tag_list()
         show_lora_base = False
         if MODEL_SD_LORA_TAG in firstTagList:
             show_lora_base = True
         lora_base_label.Show(show_lora_base)
         self.lora_base.Show(show_lora_base)
 
+        self.text_positive = wx.TextCtrl(
+            self,
+            id=wx.ID_ANY,
+            value=self.preview_options.positive,
+            size=self.Parent.FromDIP(wx.Size(250, 100)),
+            style=wx.TE_MULTILINE | wx.TE_PROCESS_ENTER,
+        )
+        
+        self.text_negative = wx.TextCtrl(
+            self,
+            id=wx.ID_ANY,
+            value=self.preview_options.negative,
+            size=self.Parent.FromDIP(wx.Size(250, 100)),
+            style=wx.TE_MULTILINE | wx.TE_PROCESS_ENTER,
+        )
 
-        sizerRight = wx.StaticBoxSizer(wx.VERTICAL, self, label="Parameters")
         sizerRight.Add(wx.StaticText(self, wx.ID_ANY, label="Positive"))
-        sizerRight.Add(self.text_prompt_before, proportion=3, flag=wx.ALL | wx.EXPAND)
+        sizerRight.Add(self.text_positive, proportion=3, flag=wx.ALL | wx.EXPAND)
         sizerRight.Add(wx.StaticText(self, wx.ID_ANY, label="Negative"))
-        sizerRight.Add(self.text_prompt_after, proportion=3, flag=wx.ALL | wx.EXPAND)
+        sizerRight.Add(self.text_negative, proportion=3, flag=wx.ALL | wx.EXPAND)
         sizerRight.Add(sizerRightAfter, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfterCFGStepClip, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfterDenoise, proportion=1, flag=wx.ALL)
-        sizerRight.Add(sizerRightAfterAddNoise, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfterUpscale, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfterSampler, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfterScheduler, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfterBaseLora, proportion=1, flag=wx.ALL)
-        sizerRight.Add(
-            self.models_text,
-            proportion=0,
-            border=5,
-            flag=wx.ALL,
+
+        self.SetSizerAndFit(sizerRight)
+
+class FileDropTarget(wx.FileDropTarget):
+    def __init__(self, window):
+        wx.FileDropTarget.__init__(self)
+        self.window = window
+
+    def OnDropFiles(self, x, y, filenames):
+        return self.window.OnDropFiles(x, y, filenames)
+
+class PreviewGeneratorDialog(wx.Dialog):
+    def __init__(self, parent, app, items, duplicate_op):
+        main_name = items[0]["filename"] if items and len(items) > 0 else ""
+        suffix = f" and other {len(items) - 1} model(s)" if len(items) > 1 else ""
+        super(PreviewGeneratorDialog, self).__init__(
+            parent, -1, f"Preview Generator: {main_name}{suffix}", size=app.FromDIP(700, 500)
         )
+        self.app = app
+        self.comfy_api = ComfyAPI(self.app)
+        self.duplicate_op = duplicate_op  # "replace", "append"
+        self.items = items
+        self.gen_preview_options = self.item_to_preview_options(items, REGEX_GEN_PREFIX)
+        self.ups_preview_options = self.item_to_preview_options(items, REGEX_UPS_PREFIX, is_upscale=True)
+        self.result = None
+        self.last_data = None
+        self.last_output = None
+        self.executing_node_id = None
+        self.upscaled = False
+        self.last_seed = -1
+        self.last_upscale_seed = -1
+        self.node_text = ""
+
+        utils.set_icons(self)
+        self.autogen = False
+
+        self.SetDropTarget(FileDropTarget(self))
+
+        # Status controls/buttons
+        self.status_text = wx.StaticText(self, -1, "Ready")
+        self.models_text = wx.StaticText(self, wx.ID_ANY, label=f"Selected models: {len(self.items)}")
+        self.gauge = wx.Gauge(self, -1, 100, size=app.FromDIP(800, 32))
+        self.image_panel = ImagePanel(self, style=wx.SUNKEN_BORDER, size=app.FromDIP(512, 512))
+        main_item = items[0] if items and len(items) > 0 else None
+        preview_image = None
+        if main_item is not None:
+            filepath = main_item["filepath"]
+            basepath = os.path.splitext(filepath)[0]
+            images = find_preview_images(basepath)
+            if len(images) > 0:
+                preview_image = images[0]
+                self.set_preview_image(preview_image)
+
+        self.button_save_notes = wx.Button(self, wx.ID_SAVE, "Save Notes")
+        self.button_regenerate = wx.Button(self, wx.ID_HELP, "Generate")
+        self.button_upscale = wx.Button(self, wx.ID_APPLY, "Upscale")
+        if not preview_image:
+            self.button_upscale.Disable()
+        self.button_cancel = wx.Button(self, wx.ID_CANCEL, "Cancel")
+        self.button_ok = wx.Button(self, wx.ID_OK, "OK")
+        self.button_ok.Disable()
+
+        def OnEnter(e):
+            if wx.GetKeyState(wx.WXK_SHIFT):
+                self.OnRegenerate(e)
+            if wx.GetKeyState(wx.WXK_ALT):
+                self.OnUpscale(e)
+        self.Bind(wx.EVT_TEXT_ENTER, OnEnter)
+        self.Bind(wx.EVT_BUTTON, self.OnRegenerate, id=wx.ID_HELP)
+        self.Bind(wx.EVT_BUTTON, self.OnUpscale, id=wx.ID_APPLY)
+        self.Bind(wx.EVT_BUTTON, self.OnCancel, id=wx.ID_CANCEL)
+        wxasync.AsyncBind(wx.EVT_BUTTON, self.OnSave, self.button_save_notes, id=wx.ID_SAVE)
+        wxasync.AsyncBind(wx.EVT_BUTTON, self.OnOK, self.button_ok, id=wx.ID_OK)
+        wxasync.AsyncBind(wx.EVT_CLOSE, self.OnClose, self)
+
+        sizerB = wx.BoxSizer(wx.HORIZONTAL)
+        sizerB.Add(self.button_ok, 0, wx.ALL, 5)
+        sizerB.Add(self.button_cancel, 0, wx.ALL, 5)
+        sizerB.Add(self.button_upscale, 0, wx.ALL, 5)
+        sizerB.Add(self.button_regenerate, 0, wx.ALL, 5)
+        sizerB.Add(self.button_save_notes, 0, wx.ALL, 5)
+
+        sizerLeft = wx.BoxSizer(wx.VERTICAL)
+        sizerLeft.Add(self.image_panel)
+        sizerLeft.AddSpacer(8)
+        sizerLeft.Add(self.status_text)
+
+        self.notebook = wx.Notebook(self)
+        self.gen_panel = GenerationOptionsPanel(self.notebook, self.app, self.gen_preview_options)
+        self.ups_panel = GenerationOptionsPanel(self.notebook, self.app, self.ups_preview_options, is_upscale=True)
+        self.notebook.AddPage(self.gen_panel, "Generation")
+        self.notebook.AddPage(self.ups_panel, "Upscale")
+
+        sizerRight = wx.StaticBoxSizer(wx.VERTICAL, self, label="Parameters")
+        sizerRight.Add(self.notebook, proportion=1, flag=wx.ALL)
+        sizerRight.Add(self.models_text, proportion=0, border=5, flag=wx.ALL)
 
         sizerMain = wx.FlexGridSizer(1, 2, 10, 10)
         sizerMain.AddMany([(sizerLeft, 1), (sizerRight, 1, wx.EXPAND)])
@@ -933,10 +838,14 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.button_upscale.Disable()
         self.button_cancel.Disable()
         self.button_ok.Disable()
-        self.text_prompt_before.Disable()
-        self.text_prompt_after.Disable()
-        self.spinner_seed.Disable()
-        self.spinner_denoise.Disable()
+        self.gen_panel.text_positive.Disable()
+        self.gen_panel.text_negative.Disable()
+        self.gen_panel.spinner_seed.Disable()
+        self.gen_panel.spinner_denoise.Disable()
+        self.ups_panel.text_positive.Disable()
+        self.ups_panel.text_negative.Disable()
+        self.ups_panel.spinner_seed.Disable()
+        self.ups_panel.spinner_denoise.Disable()
 
         if self.result is not None:
             await self.save_preview_image(self.items[0], self.result)
@@ -950,13 +859,13 @@ class PreviewGeneratorDialog(wx.Dialog):
                 filename = os.path.basename(item["filepath"])
                 self.status_text.SetLabel(f"Generating preview for {filename}")
                 self.models_text.SetLabel(f"Progress: {i}/{len(self.items)-1}")
-                self.spinner_seed.SetValue(str(self.last_seed))
+                self.gen_panel.spinner_seed.SetValue(str(self.last_seed))
                 e = Event()
                 self.start_prompt(item, e=e)
                 await e.wait()
                 if upscaled:
                     self.status_text.SetLabel("Starting upscale...")
-                    self.spinner_seed.SetValue(str(self.last_upscale_seed))
+                    self.ups_panel.spinner_seed.SetValue(str(self.last_upscale_seed))
                     e = Event()
                     thread = self.upscale_prompt(item, e=e)
                     await e.wait()
@@ -977,116 +886,47 @@ class PreviewGeneratorDialog(wx.Dialog):
             return
         await on_close(self, evt)
 
-    async def OnSave(self, evt):
-        main_item = self.items[0]
-        notes = main_item.get("notes") or ""
-        insert_str = ""
-
-        positive = self.text_prompt_before.GetValue()
-        if re.search(REGEX_POSITIVE, notes, re.I):
-            notes = re.sub(REGEX_POSITIVE, f"positive: {positive}\n", notes, flags = re.I, count = 1)
-        else:
-            insert_str += f"positive: {positive}\n"
-
-        negative = self.text_prompt_after.GetValue()
-        if re.search(REGEX_NEGATIVE, notes, re.I):
-            notes = re.sub(REGEX_NEGATIVE, f"negative: {negative}\n", notes, flags = re.I, count = 1)
-        else:
-            insert_str += f"negative: {negative}\n"
-
-        seed = self.spinner_seed.GetValue()
-        if re.search(REGEX_SEED, notes, re.I):
-            notes = re.sub(REGEX_SEED, f"seed: {seed}\n", notes, flags = re.I, count = 1)
-        else:
-            insert_str += f"seed: {seed}\n"
-        
-        denoise = self.spinner_denoise.GetValue()
-        re_result = re.finditer(REGEX_DENOISE, notes, re.I)
-        count = sum(1 for match in re_result if not match.group(1))
-        if count:
-            notes = re.sub(REGEX_DENOISE, lambda match: match.group(0) if match.group(1) else f"denoise: {denoise}\n", notes, flags = re.I)
-        else:
-            insert_str += f"denoise: {denoise}\n"
-
-        upscale_denoise = self.spinner_upscale_denoise.GetValue()
-        if re.search(REGEX_UPSCALE_DENOISE, notes, re.I):
-            notes = re.sub(REGEX_UPSCALE_DENOISE, f"upscale denoise: {upscale_denoise}\n", notes, flags = re.I, count = 1)
-        else:
-            insert_str += f"upscale denoise: {upscale_denoise}\n"
-
-        cfg = self.spinner_cfg.GetValue()
-        if re.search(REGEX_CFG, notes, re.I):
-            notes = re.sub(REGEX_CFG, f"cfg: {cfg}\n", notes, flags = re.I, count = 1)
-        else:
-            insert_str += f"cfg: {cfg}\n"
-
-        steps = self.spinner_steps.GetValue()
-        if re.search(REGEX_STEPS, notes, re.I):
-            notes = re.sub(REGEX_STEPS, f"steps: {steps}\n", notes, flags = re.I, count = 1)
-        else:
-            insert_str += f"steps: {steps}\n"
-
+    def panel_to_notes(self, panel, notes, prefix, is_upscale=False):
+        def replace_or_insert(notes, regex, value):
+            prefix_regex = REGEX_PREFIX.format(prefix, regex)
+            previx_value = f"{prefix} {value}"
+            re_result = re.finditer(prefix_regex, notes, re.I)
+            count = sum(1 for match in re_result if match.group(1))
+            if count:
+                notes = re.sub(prefix_regex, lambda match: match.group(0) if not match.group(1) else previx_value, notes, flags = re.I)
+            else:
+                notes = previx_value + notes
+            return notes
+        notes = replace_or_insert(notes, REGEX_POSITIVE, f"positive: {panel.text_positive.GetValue()}\n")
+        notes = replace_or_insert(notes, REGEX_NEGATIVE, f"negative: {panel.text_negative.GetValue()}\n")
+        notes = replace_or_insert(notes, REGEX_SEED, f"seed: {panel.spinner_seed.GetValue()}\n")
+        notes = replace_or_insert(notes, REGEX_DENOISE, f"denoise: {panel.spinner_denoise.GetValue()}\n")
+        notes = replace_or_insert(notes, REGEX_CFG, f"cfg: {panel.spinner_cfg.GetValue()}\n")
+        notes = replace_or_insert(notes, REGEX_STEPS, f"steps: {panel.spinner_steps.GetValue()}\n")
+        notes = replace_or_insert(notes, REGEX_ADD_NOISE, f"add noise: {panel.spinner_add_noise.GetValue()}\n")
+        notes = replace_or_insert(notes, REGEX_SAMPLER, f"sampler: {panel.sampler.GetValue()}\n")
         # turbo and xl no clip
         firstTag = self.get_main_first_tag()
         if firstTag != MODEL_SD_TURBO_TAG and firstTag != MODEL_SD_XL_TAG:
-            clip = self.spinner_clip.GetValue()
-            if re.search(REGEX_CLIP, notes, re.I):
-                notes = re.sub(REGEX_CLIP, f"clip: {clip}\n", notes, flags = re.I, count = 1)
-            else:
-                insert_str += f"clip: {clip}\n"
-
-        upscale_factor = self.spinner_upscale_factor.GetValue()
-        if re.search(REGEX_UPSCALE_FACTOR, notes, re.I):
-            notes = re.sub(REGEX_UPSCALE_FACTOR, f"upscale factor: {upscale_factor}\n", notes, flags = re.I, count = 1)
-        else:
-            insert_str += f"upscale factor: {upscale_factor}\n"
-
-        add_noise = self.spinner_add_noise.GetValue()
-        if not self.check_add_noise.GetValue():
-            add_noise = 0
-        re_result = re.finditer(REGEX_ADD_NOISE, notes, re.I)
-        count = sum(1 for match in re_result if not match.group(1))
-        if count:
-            notes = re.sub(REGEX_ADD_NOISE, lambda match: match.group(0) if match.group(1) else f"add noise: {add_noise}\n", notes, flags = re.I)
-        else:
-            insert_str += f"add noise: {add_noise}\n"
-
-        upscale_add_noise = self.spinner_upscale_add_noise.GetValue()
-        if not self.check_upscale_add_noise.GetValue():
-            upscale_add_noise = 0
-        if re.search(REGEX_UPSCALE_ADD_NOISE, notes, re.I):
-            notes = re.sub(REGEX_UPSCALE_ADD_NOISE, f"upscale add noise: {upscale_add_noise}\n", notes, flags = re.I, count = 1)
-        else:
-            insert_str += f"upscale add noise: {upscale_add_noise}\n"
-
-        sampler = self.sampler.GetValue()
-        if re.search(REGEX_SAMPLER, notes, re.I):
-            notes = re.sub(REGEX_SAMPLER, f"sampler: {sampler}\n", notes, flags = re.I, count = 1)
-        else:
-            insert_str += f"sampler: {sampler}\n"
-        
+            notes = replace_or_insert(notes, REGEX_CLIP, f"clip: {panel.spinner_clip.GetValue()}\n")
         # turbo no scheduler
-        firstTag = self.get_main_first_tag()
         if firstTag != MODEL_SD_TURBO_TAG:
-            scheduler = self.scheduler.GetValue()
-            if re.search(REGEX_SCHEDULER, notes, re.I):
-                notes = re.sub(REGEX_SCHEDULER, f"scheduler: {scheduler}\n", notes, flags = re.I, count = 1)
-            else:
-                insert_str += f"scheduler: {scheduler}\n"
-
+            notes = replace_or_insert(notes, REGEX_SCHEDULER, f"scheduler: {panel.scheduler.GetValue()}\n")
         # only lora need base model
-        firstTag = self.get_main_first_tag()
         if firstTag == MODEL_SD_LORA_TAG:
-            lora_base = self.lora_base.GetValue()
-            if re.search(REGEX_LORA_BASE, notes, re.I):
-                notes = re.sub(REGEX_LORA_BASE, f"lora base: {lora_base}\n", notes, flags = re.I, count = 1)
-            else:
-                insert_str += f"lora base: {lora_base}\n"
+            notes = replace_or_insert(notes, REGEX_LORA_BASE, f"lora base: {panel.lora_base.GetValue()}\n")
+        if is_upscale:
+            notes = replace_or_insert(notes, REGEX_UPSCALE_FACTOR, f"upscale factor: {panel.spinner_upscale_factor.GetValue()}\n")
+        return notes
 
-        results_panel = self.app.frame.results_panel
-        notes = insert_str + notes
+    async def OnSave(self, evt):
+        main_item = self.items[0]
+        notes = main_item.get("notes") or ""
+        notes = self.panel_to_notes(self.ups_panel, notes, REGEX_UPS_PREFIX, True)
+        notes = self.panel_to_notes(self.gen_panel, notes, REGEX_GEN_PREFIX)
+        
         await self.app.api.update_lora(main_item["id"], {"notes": notes})
-        await results_panel.re_search()
+        await self.app.frame.results_panel.re_search()
         
 
     def OnRegenerate(self, evt):
@@ -1138,69 +978,56 @@ class PreviewGeneratorDialog(wx.Dialog):
                 tags = tags[:count]
         return tags
 
-    def get_prompt_options(self):
-        prompt_before = self.text_prompt_before.GetValue().strip().replace("\n", " ,")
+    def get_prompt_options_for_panel(self, panel):
+        positive = panel.text_positive.GetValue().strip().replace("\n", " ,")
         return GeneratePreviewsOptions(
-            prompt_before=prompt_before,
-            prompt_after=self.text_prompt_after.GetValue(),
-            seed=int(self.spinner_seed.GetValue()),
-            denoise=float(self.spinner_denoise.GetValue()),
-            upscale_denoise=float(self.spinner_upscale_denoise.GetValue()),
-            cfg=int(self.spinner_cfg.GetValue()),
-            steps=int(self.spinner_steps.GetValue()),
-            clip=int(self.spinner_clip.GetValue()),
-            upscale_factor=float(self.spinner_upscale_factor.GetValue()),
-            add_noise=float(self.spinner_add_noise.GetValue()),
-            check_add_noise=bool(self.check_add_noise.GetValue()),
-            upscale_add_noise=float(self.spinner_upscale_add_noise.GetValue()),
-            check_upscale_add_noise=bool(self.check_upscale_add_noise.GetValue()),
-            sampler=self.sampler.GetValue(),
-            scheduler=self.scheduler.GetValue(),
-            lora_base=self.lora_base.GetValue(),
+            positive=positive,
+            negative=panel.text_negative.GetValue(),
+            seed=int(panel.spinner_seed.GetValue()),
+            denoise=float(panel.spinner_denoise.GetValue()),
+            cfg=int(panel.spinner_cfg.GetValue()),
+            steps=int(panel.spinner_steps.GetValue()),
+            clip=int(panel.spinner_clip.GetValue()),
+            upscale_factor=float(panel.spinner_upscale_factor.GetValue()),
+            add_noise=float(panel.spinner_add_noise.GetValue()),
+            check_add_noise=bool(panel.check_add_noise.GetValue()),
+            sampler=panel.sampler.GetValue(),
+            scheduler=panel.scheduler.GetValue(),
+            lora_base=panel.lora_base.GetValue(),
         )
 
     def assemble_prompt_data(self, item):
         checkpoint = item["filename"]
-        inputOptions = self.get_prompt_options()
-        itemOptions = self.item_to_preview_options(item)
-        positive = inputOptions.prompt_before if self.preview_options.prompt_before != inputOptions.prompt_before else itemOptions.prompt_before
-        negative = inputOptions.prompt_after if self.preview_options.prompt_after != inputOptions.prompt_after else itemOptions.prompt_after
-        seed = inputOptions.seed if inputOptions.seed != self.preview_options.seed else itemOptions.seed
-        if seed == -1:
-            seed = random.randint(0, SEED_RANDOM_MAX)
-        denoise = inputOptions.denoise if inputOptions.denoise != self.preview_options.denoise else itemOptions.denoise
-        upscale_denoise = inputOptions.upscale_denoise if inputOptions.upscale_denoise != self.preview_options.upscale_denoise else itemOptions.upscale_denoise
-        cfg = inputOptions.cfg if inputOptions.cfg != self.preview_options.cfg else itemOptions.cfg
-        steps = inputOptions.steps if inputOptions.steps != self.preview_options.steps else itemOptions.steps
-        clip = inputOptions.clip if inputOptions.clip != self.preview_options.clip else itemOptions.clip
-        upscale_factor = inputOptions.upscale_factor if inputOptions.upscale_factor != self.preview_options.upscale_factor else itemOptions.upscale_factor
-        add_noise = inputOptions.add_noise if inputOptions.add_noise != self.preview_options.add_noise else itemOptions.add_noise
-        upscale_add_noise = inputOptions.upscale_add_noise if inputOptions.upscale_add_noise != self.preview_options.upscale_add_noise else itemOptions.upscale_add_noise
-        sampler = inputOptions.sampler if inputOptions.sampler != self.preview_options.sampler else itemOptions.sampler
-        scheduler = inputOptions.scheduler if inputOptions.scheduler != self.preview_options.scheduler else itemOptions.scheduler
-        lora_base = inputOptions.lora_base if inputOptions.lora_base != self.preview_options.lora_base else itemOptions.lora_base
         tags = item["tags"]
+        def process_options(options, inputs, initial_inputs):
+            options.positive = inputs.positive if inputs.positive != initial_inputs.positive else options.positive
+            options.negative = inputs.negative if inputs.negative != initial_inputs.negative else options.negative
+            options.seed = inputs.seed if inputs.seed != initial_inputs.seed else options.seed
+            if options.seed == -1:
+                options.seed = random.randint(0, SEED_RANDOM_MAX)
+            options.denoise = inputs.denoise if inputs.denoise != initial_inputs.denoise else options.denoise
+            options.cfg = inputs.cfg if inputs.cfg != initial_inputs.cfg else options.cfg
+            options.steps = inputs.steps if inputs.steps != initial_inputs.steps else options.steps
+            options.clip = inputs.clip if inputs.clip != initial_inputs.clip else options.clip
+            options.upscale_factor = inputs.upscale_factor if inputs.upscale_factor != initial_inputs.upscale_factor else options.upscale_factor
+            options.add_noise = inputs.add_noise if inputs.add_noise != initial_inputs.add_noise else options.add_noise
+            options.check_add_noise = inputs.check_add_noise
+            options.sampler = inputs.sampler if inputs.sampler != initial_inputs.sampler else options.sampler
+            options.scheduler = inputs.scheduler if inputs.scheduler != initial_inputs.scheduler else options.scheduler
+            options.lora_base = inputs.lora_base if inputs.lora_base != initial_inputs.lora_base else options.lora_base
+            return options
+        gen_input = self.get_prompt_options_for_panel(self.gen_panel)
+        gen_options = self.item_to_preview_options(item, REGEX_GEN_PREFIX)
+        gen_options = process_options(gen_options, gen_input, self.gen_preview_options)
+        ups_input = self.get_prompt_options_for_panel(self.ups_panel)
+        ups_options = self.item_to_preview_options(item, REGEX_UPS_PREFIX, True)
+        ups_options = process_options(ups_options, ups_input, self.ups_preview_options)
         data = PreviewPromptData(
-            seed = seed, 
-            denoise = denoise,
-            upscale_denoise = upscale_denoise,
             checkpoint = checkpoint,
-            positive = positive,
-            negative = negative,
-            cfg = cfg,
-            steps = steps,
-            clip = clip,
-            upscale_factor = upscale_factor,
-            add_noise = add_noise,
-            check_add_noise = inputOptions.check_add_noise,
-            upscale_add_noise = upscale_add_noise,
-            check_upscale_add_noise = inputOptions.check_upscale_add_noise,
-            sampler = sampler,
-            scheduler = scheduler,
-            lora_base = lora_base,
-            tags = tags
+            tags = tags,
+            gen_options = gen_options,
+            ups_options = ups_options,
         )
-        print(f"Seed: {seed}")
         return data
 
     def enqueue_prompt_and_wait(self, executor, prompt):
@@ -1284,7 +1111,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.last_data = data
         self.last_output = image_location
         self.result = image_location
-        self.last_seed = data.seed
+        self.last_seed = data.current_options.seed
 
         self.after_execute()
 
@@ -1304,7 +1131,7 @@ class PreviewGeneratorDialog(wx.Dialog):
 
         self.last_data = data
         self.result = image_location
-        self.last_upscale_seed = data.seed
+        self.last_upscale_seed = data.current_options.seed
         self.upscaled = True
 
         self.after_execute()
@@ -1343,34 +1170,41 @@ class PreviewGeneratorDialog(wx.Dialog):
         await wxasync.AsyncShowDialogModal(dialog)
         self.AsyncEndModal(wx.ID_CANCEL)
 
-    def item_to_preview_options(self, itemsOrItems):
+    def item_to_preview_options(self, itemsOrItems, prefix, is_upscale=False):
         item = itemsOrItems
         if isinstance(itemsOrItems, list):
             item = itemsOrItems[0]
         notes = item.get("notes") or ""
-        def get_default_prompt(prompt_key, regex, default):
-            re_notes_prompt = re.search(regex, notes, re.I)
-            notes_prompt = re_notes_prompt.group(1).strip() if re_notes_prompt else default
-            prompt = notes_prompt.strip()
-            keywords = item[prompt_key]
+        def regex_get(regex, prefix, notes, default):
+            prefix_regex = regex
+            if prefix:
+                prefix_regex = REGEX_PREFIX.format(prefix, regex)
+            re_prefix_result = re.finditer(prefix_regex, notes, re.I)
+            re_prefix = next((match for match in re_prefix_result if match.group(1)), None)
+            if re_prefix:
+                return re_prefix.group(2).strip()
+            re_noprefix_result = re.finditer(prefix_regex, notes, re.I)
+            re_noprefix = next((match for match in re_noprefix_result if not match.group(1)), None)
+            if re_noprefix:
+                return re_noprefix.group(2).strip()
+            return default
+        def get_default_prompt(keywords_key, regex, default):
+            prompt = regex_get(regex, prefix, notes, default)
+            keywords = item[keywords_key]
             if not keywords:
                 return prompt
-            if keywords.startswith(OVERRIDE_KEYWORD):
-                prompt = ""
-                keywords = keywords.replace(OVERRIDE_KEYWORD, "")
+            keyToInsert = []
+            keywords = keywords.replace("\n", ", ")
+            keywordList = keywords.split(",")
+            for key in keywordList:
+                key = key.strip()
+                if key not in prompt:
+                    keyToInsert.append(key.strip())
+            if len(keyToInsert) > 0:
+                keyStr = ", ".join(keyToInsert)
+                keywords = f", {keyStr}"
             else:
-                keyToInsert = []
-                keywords = keywords.replace("\n", ", ")
-                keywordList = keywords.split(",")
-                for key in keywordList:
-                    key = key.strip()
-                    if key not in prompt:
-                        keyToInsert.append(key.strip())
-                if len(keyToInsert) > 0:
-                    keyStr = ", ".join(keyToInsert)
-                    keywords = f", {keyStr}"
-                else:
-                    keywords = ""
+                keywords = ""
             prompt += keywords
             return prompt
         # build positive prompt
@@ -1378,57 +1212,36 @@ class PreviewGeneratorDialog(wx.Dialog):
         # build negative prompt
         negative = get_default_prompt("negative_keywords", REGEX_NEGATIVE, DEFAULT_NEGATIVE)
         # build seed
-        re_notes_seed = re.search(REGEX_SEED, notes, re.I)
-        seed = int(re_notes_seed.group(1).strip()) if re_notes_seed else DEFAULT_SEED
+        seed = int(regex_get(REGEX_SEED, prefix, notes, DEFAULT_SEED))
         # build denoise
-        re_result = re.finditer(REGEX_DENOISE, notes, re.I)
-        re_notes_denoise = next((match for match in re_result if not match.group(1)), None)
-        denoise = float(re_notes_denoise.group(2).strip()) if re_notes_denoise else DEFAULT_DENOISE
-        # build upscale denoise
-        re_notes_upscale_denoise = re.search(REGEX_UPSCALE_DENOISE, notes, re.I)
-        upscale_denoise = float(re_notes_upscale_denoise.group(1).strip()) if re_notes_upscale_denoise else DEFAULT_UPSCALE_DENOISE
+        denoise = float(regex_get(REGEX_DENOISE, prefix, notes, DEFAULT_DENOISE if not is_upscale else DEFAULT_UPSCALE_DENOISE))
         # build cfg
-        re_notes_cfg = re.search(REGEX_CFG, notes, re.I)
-        cfg = int(re_notes_cfg.group(1).strip()) if re_notes_cfg else DEFAULT_CFG
+        cfg = int(regex_get(REGEX_CFG, prefix, notes, DEFAULT_CFG))
         # build steps
-        re_notes_steps = re.search(REGEX_STEPS, notes, re.I)
-        steps = int(re_notes_steps.group(1).strip()) if re_notes_steps else DEFAULT_STEPS
+        steps = int(regex_get(REGEX_STEPS, prefix, notes, DEFAULT_STEPS))
         # build clip
-        re_notes_clip = re.search(REGEX_CLIP, notes, re.I)
-        clip = int(re_notes_clip.group(1).strip()) if re_notes_clip else DEFAULT_CLIP
+        clip = int(regex_get(REGEX_CLIP, prefix, notes, DEFAULT_CLIP))
         # build upscale factor
-        re_notes_upscale_factor = re.search(REGEX_UPSCALE_FACTOR, notes, re.I)
-        upscale_factor = float(re_notes_upscale_factor.group(1).strip()) if re_notes_upscale_factor else DEFAULT_UPSCALE_FACTOR
+        upscale_factor = float(regex_get(REGEX_UPSCALE_FACTOR, prefix, notes, DEFAULT_UPSCALE_FACTOR))
         # build add noise
-        re_result = re.finditer(REGEX_ADD_NOISE, notes, re.I)
-        re_notes_add_noise = next((match for match in re_result if not match.group(1)), None)
-        add_noise = float(re_notes_add_noise.group(2).strip()) if re_notes_add_noise else DEFAULT_ADD_NOISE
-        # build upscale add noise
-        re_notes_upscale_add_noise = re.search(REGEX_UPSCALE_ADD_NOISE, notes, re.I)
-        upscale_add_noise = float(re_notes_upscale_add_noise.group(1).strip()) if re_notes_upscale_add_noise else DEFAULT_UPSCALE_ADD_NOISE
+        add_noise = float(regex_get(REGEX_ADD_NOISE, prefix, notes, DEFAULT_ADD_NOISE))
         # build sampler
-        re_notes_sampler = re.search(REGEX_SAMPLER, notes, re.I)
-        sampler = re_notes_sampler.group(1).strip() if re_notes_sampler else DEFAULT_SAMPLER
+        sampler = regex_get(REGEX_SAMPLER, prefix, notes, DEFAULT_SAMPLER)
         # build scheduler
-        re_notes_scheduler = re.search(REGEX_SCHEDULER, notes, re.I)
-        scheduler = re_notes_scheduler.group(1).strip() if re_notes_scheduler else DEFAULT_SCHEDULER
+        scheduler = regex_get(REGEX_SCHEDULER, prefix, notes, DEFAULT_SCHEDULER)
         # build lora base
-        re_notes_lora_base = re.search(REGEX_LORA_BASE, notes, re.I)
-        lora_base = re_notes_lora_base.group(1).strip() if re_notes_lora_base else DEFAULT_LORA_BASE
+        lora_base = regex_get(REGEX_LORA_BASE, prefix, notes, DEFAULT_LORA_BASE)
         previewPrompOptions = GeneratePreviewsOptions(
-            prompt_before = positive,
-            prompt_after = negative,
+            positive = positive,
+            negative = negative,
             seed = seed,
             denoise = denoise,
-            upscale_denoise = upscale_denoise,
             cfg = cfg,
             steps = steps,
             clip = clip,
             upscale_factor = upscale_factor,
             add_noise = add_noise,
             check_add_noise = add_noise != 0,
-            upscale_add_noise = upscale_add_noise,
-            check_upscale_add_noise = upscale_add_noise != 0,
             sampler = sampler,
             scheduler = scheduler,
             lora_base = lora_base

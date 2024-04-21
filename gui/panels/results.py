@@ -265,6 +265,8 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
     def MousePosToCol(self, pos):
         pos_with_scroll = self._mainWin.CalcUnscrolledPosition(pos)
         local_pos = self.ScreenToClient(pos_with_scroll)
+        if not self.GetClientRect().Contains(local_pos):
+            return None
         x = local_pos[0]
         for i, col in enumerate(COLUMNS):
             if not col.is_visible:

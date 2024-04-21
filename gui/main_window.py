@@ -210,6 +210,8 @@ class MainWindow(wx.Frame):
             return
         mouse_pos = wx.GetMousePosition()
         col = self.results_panel.results_panel.list.MousePosToCol(mouse_pos)
+        if col is None:
+            return
         value_list = []
         for item in selection:
             one_value = str(utils.COLUMNS[col].callback(item)) if col is not None else ""

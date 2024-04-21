@@ -32,9 +32,8 @@
 import io
 import os
 import wx
-# import wx.lib.mixins.inspection
-import wx.lib.scrolledpanel as scrolled
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 import gui.utils
 
 class ImagePanel(wx.Panel):
@@ -123,17 +122,15 @@ class ImagePanel(wx.Panel):
     def StartDragAndDrop(self):
         if not self.image:
             return
-        data = ""
-        if "parameters" in self.image.info:
-            data = self.image.info["parameters"]
-        elif "prompt" in self.image.info:
-            data = self.image.info["prompt"]
-        write_path = os.path.join(gui.utils.PROGRAM_ROOT, "drag_drop_temp.json")
+        metadata = PngInfo()
+        if "prompt" in self.image.info:
+            prommt = self.image.info["prompt"]
+            metadata.add_text("prompt", prommt)
+        write_path = os.path.join(gui.utils.PROGRAM_ROOT, "drag_drop_temp.png")
         try:
             if os.path.exists(write_path):
                 os.remove(write_path)
-            with open(write_path, "w") as f:
-                f.write(data)
+            self.image.save(write_path, pnginfo=metadata)
         except:
             return
         dataObj = wx.FileDataObject()

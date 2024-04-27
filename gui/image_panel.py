@@ -36,6 +36,8 @@ from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 import gui.utils
 
+DRAG_AND_DROP_TEMP_FILENAME = "drag_drop_temp.png"
+
 class ImagePanel(wx.Panel):
     """
     This control implements a basic image viewer. As the control is
@@ -54,10 +56,11 @@ class ImagePanel(wx.Panel):
         pos=wx.DefaultPosition,
         size=wx.DefaultSize,
         style=wx.SUNKEN_BORDER,
+        app=None,
     ):
 
         super().__init__(parent, id, pos, size, style=style)
-
+        self.app = app
         self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
         self.Bind(wx.EVT_LEFT_UP, self.OnLeftUp)
         self.Bind(wx.EVT_MOTION, self.OnMotion)
@@ -126,7 +129,7 @@ class ImagePanel(wx.Panel):
         if "prompt" in self.image.info:
             prommt = self.image.info["prompt"]
             metadata.add_text("prompt", prommt)
-        write_path = os.path.join(gui.utils.PROGRAM_ROOT, "drag_drop_temp.png")
+        write_path = os.path.join(gui.utils.PROGRAM_ROOT, DRAG_AND_DROP_TEMP_FILENAME)
         try:
             if os.path.exists(write_path):
                 os.remove(write_path)
@@ -149,9 +152,18 @@ class ImagePanel(wx.Panel):
         m = wx.GetMouseState()
 
         if m.ControlDown():
+            old_pos = self.bmpImage.GetPosition()
+            old_size = self.bmpImage.GetSize()
             delta = 0.1 * event.GetWheelRotation() / event.GetWheelDelta()
             self.zoom = max(1, self.zoom + delta)
             self.ScaleToFit()
+            new_size = self.bmpImage.GetSize()
+            panel_size = self.GetSize()
+            old_center = (panel_size - old_size) / 2
+            old_offset = old_center - old_pos
+            new_center = (panel_size - new_size) / 2
+            new_pos = new_center - old_offset
+            self.bmpImage.SetPosition((new_pos.x, new_pos.y))
 
         event.Skip()
 
@@ -167,6 +179,9 @@ class ImagePanel(wx.Panel):
         self.SetImage(image)
 
     def LoadImageFrompath(self, path) -> None:
+        file = os.path.basename(path)
+        if file == DRAG_AND_DROP_TEMP_FILENAME:
+            return
         image = Image.open(path)
         self.SetImage(image)
 
@@ -182,25 +197,27 @@ class ImagePanel(wx.Panel):
         Scale the image to fit in the container while maintaining
         the original aspect ratio.
         """
-        if self.image:
+        if not self.image:
+            return
 
-            # get container (c) dimensions
-            cw, ch = self.GetSize()
+        # get container (c) dimensions
+        cw, ch = self.GetSize()
 
-            # calculate new (n) dimensions with same aspect ratio
-            nw = cw
-            nh = int(nw * self.aspect)
+        # calculate new (n) dimensions with same aspect ratio
+        nw = cw
+        nh = int(nw * self.aspect)
 
-            # if new height is too large then recalculate sizes to fit
-            if nh > ch:
-                nh = ch
-                nw = int(nh / self.aspect)
+        # if new height is too large then recalculate sizes to fit
+        if nh > ch:
+            nh = ch
+            nw = int(nh / self.aspect)
 
-            # Apply zoom
-            nh = int(nh * self.zoom)
-            nw = int(nw * self.zoom)
+        # Apply zoom
+        nh = int(nh * self.zoom)
+        nw = int(nw * self.zoom)
 
-            # scale the image to new dimensions and display
-            image = self.image.resize((nw, nh), resample=Image.BICUBIC)
-            self.bmpImage.SetBitmap(wx.BitmapFromBuffer(nw, nh, image.tobytes()))
-            # self.Layout()
+        # scale the image to new dimensions and display
+        image = self.image.resize((nw, nh), resample=Image.BICUBIC)
+        self.bmpImage.SetBitmap(wx.BitmapFromBuffer(nw, nh, image.tobytes()))
+        # self.Layout()
+        

@@ -841,7 +841,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.status_text = wx.StaticText(self, -1, "Ready")
         self.models_text = wx.StaticText(self, wx.ID_ANY, label=f"Selected models: {len(self.items)}")
         self.gauge = wx.Gauge(self, -1, 100, size=app.FromDIP(800, 32))
-        self.image_panel = ImagePanel(self, style=wx.SUNKEN_BORDER, size=app.FromDIP(512, 512))
+        self.image_panel = ImagePanel(self, style=wx.SUNKEN_BORDER, size=app.FromDIP(512, 512), app=self.app)
         main_item = items[0] if items and len(items) > 0 else None
         preview_image = None
         if main_item is not None:

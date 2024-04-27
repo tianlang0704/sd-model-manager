@@ -16,7 +16,7 @@ class PreviewImagePanel(wx.Panel):
 
         wx.Panel.__init__(self, *args, **kwargs)
 
-        self.image_view = ImagePanel(self, style=wx.SUNKEN_BORDER)
+        self.image_view = ImagePanel(self, style=wx.SUNKEN_BORDER, app=self.app)
 
         self.sizer = wx.BoxSizer(wx.VERTICAL)
         self.sizer.Add(

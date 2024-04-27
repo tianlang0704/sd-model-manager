@@ -393,11 +393,16 @@ class GenerationOptionsPanel(wx.Panel):
             border=5,
             flag=wx.ALL,
         )
-        self.spinner_seed = wx.TextCtrl(
+        self.seed_history = ["-1"]
+        if self.preview_options.seed != -1:
+            self.seed_history.append(str(self.preview_options.seed))
+        self.spinner_seed = wx.ComboBox(
             self, 
-            wx.ID_ANY, 
-            value = str(self.preview_options.seed), 
-            size = self.Parent.FromDIP(wx.Size(90, 25))
+            id=wx.ID_ANY, 
+            value=str(self.preview_options.seed), 
+            choices=self.seed_history, 
+            style=wx.TE_PROCESS_ENTER,
+            size = self.Parent.FromDIP(wx.Size(110, 25)),
         )
         sizerRightAfter.Add(self.spinner_seed, proportion=1, flag=wx.ALL, border=5)
 
@@ -801,6 +806,18 @@ class GenerationOptionsPanel(wx.Panel):
         sizerRight.Add(sizerRightAfterVae, proportion=1, flag=wx.ALL)
 
         self.SetSizerAndFit(sizerRight)
+
+    def update_seed_history(self, new_seed):
+        if not isinstance(new_seed, str):
+            new_seed = str(new_seed)
+        if new_seed in self.seed_history:
+            return
+        self.seed_history.insert(1, new_seed)
+        if len(self.seed_history) > 10:
+            self.seed_history = self.seed_history[:10]
+        old_text = self.spinner_seed.GetValue()
+        self.spinner_seed.SetItems(self.seed_history)
+        self.spinner_seed.SetValue(old_text)
 
 class FileDropTarget(wx.FileDropTarget):
     def __init__(self, window):
@@ -1265,6 +1282,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.last_output = image_location
         self.result = image_location
         self.last_seed = data.current_options.seed
+        self.gen_panel.update_seed_history(self.last_seed)
 
         self.after_execute()
 
@@ -1286,6 +1304,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.result = image_location
         self.last_upscale_seed = data.current_options.seed
         self.upscaled = True
+        self.ups_panel.update_seed_history(self.last_upscale_seed)
 
         self.after_execute()
 

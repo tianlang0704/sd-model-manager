@@ -68,7 +68,7 @@ def find_image(filepath, load=False, fuzzy=True):
         elif os.path.isfile(file):
             return None, file
 
-    if fuzzy:
+    if os.path.isdir(path) and fuzzy:
         for fname in os.listdir(path):
             file = os.path.realpath(os.path.join(path, fname))
             if basename in file:

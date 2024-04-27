@@ -34,11 +34,15 @@ DEFAULT_UPSCALE_DENOISE = 0.6
 DEFAULT_CFG = 8
 DEFAULT_STEPS = 20
 DEFAULT_CLIP = -1
+DEFAULT_GEN_SIZE = "512x512"
 DEFAULT_UPSCALE_FACTOR = 1.5
 DEFAULT_ADD_NOISE = 0.0
 DEFAULT_SAMPLER = "euler_ancestral"
 DEFAULT_SCHEDULER = "normal"
+DEFAULT_LORA_MODEL_WEIGHT = 1.0
+DEFAULT_LORA_CLIP_WEIGHT = 1.0
 DEFAULT_LORA_BASE = "AOM3.safetensors"
+DEFAULT_VAE = "embeded"
 REGEX_POSITIVE = r"positive:(.+)\n*"
 REGEX_NEGATIVE = r"negative:(.+)\n*"
 REGEX_SEED = r"seed:\s*(\-?\s*\d+)\n*"
@@ -46,13 +50,16 @@ REGEX_DENOISE = r"denoise:\s*?(\-?\s*\d+\s*?\.?\s*?\d*)\n*"
 REGEX_CFG = r"cfg:\s*(\d+)\n*"
 REGEX_STEPS = r"steps:\s*(\d+)\n*"
 REGEX_CLIP = r"clip:\s*(\-?\s*\d+)\n*"
+REGEX_GEN_SIZE = r"gen[\t\f \-_]*size:\s*(\d+x\d+)\n*"
 REGEX_UPSCALE_FACTOR = r"upscale[\t\f \-_]*factor:\s*(\d+\s*\.?\s*\d*)\n*"
 REGEX_ADD_NOISE = r"add[\t\f \-_]*noise:\s*(\-?\s*\d+\s*\.?\s*\d*)\n*"
 REGEX_SAMPLER = r"sampler:\s*([\w\.\-_]+)\n*"
 REGEX_SCHEDULER = r"scheduler:\s*([\w\.\-_]+)\n*"
+REGEX_LORA_MODEL_WEIGHT = r"lora[\t\f \-_]*model[\t\f \-_]*weight:\s*(\d+\s*\.?\s*\d*)\n*"
+REGEX_LORA_CLIP_WEIGHT = r"lora[\t\f \-_]*clip[\t\f \-_]*weight:\s*(\d+\s*\.?\s*\d*)\n*"
 REGEX_LORA_BASE = r"lora[\t\f \-_]*base:\s*([\w\.\-_ ]+)\n*"
+REGEX_VAE = r"vae:\s*([\w\.\-_]+)\n*"
 REGEX_PREFIX = r"({0})?[\t\f \-_]*{1}"
-# (generate)?[\t\f \-_]*positive:(.+)\n*
 REGEX_GEN_PREFIX = "generate"
 REGEX_UPS_PREFIX = "upscale"
 SEED_RANDOM_MAX = 2**32
@@ -74,12 +81,16 @@ class GeneratePreviewsOptions:
     cfg: int
     steps: int
     clip: int
+    gen_size: str
     upscale_factor: float
     add_noise: float
     check_add_noise: bool
     sampler: str
     scheduler: str
+    lora_model_weight: float
+    lora_clip_weight: float
     lora_base: str
+    vae: str
 
 
 @dataclass
@@ -102,6 +113,23 @@ class PreviewPromptData:
                 res_list.append(key)
         first = res_list[0] if len(res_list) > 0 else None
         return first, res_list
+    
+    def patch_vae(self, prompt, node_prefix):
+        if self.current_options.vae == "embeded":
+            return prompt
+        vae_subnodes = load_prompt("vae.json")
+        vae_subnodes["21"]["inputs"]["vae_name"] = self.current_options.vae
+        _, decode_vae_node_list = self.get_node_with_type(prompt, ["VAEDecode"])
+        for key in decode_vae_node_list:
+            prompt[key]["inputs"]["vae"] = [node_prefix + "21", 0]
+        _, encode_vae_node_list = self.get_node_with_type(prompt, ["VAEEncode"])
+        for key in encode_vae_node_list:
+            prompt[key]["inputs"]["vae"] = [node_prefix + "21", 0]
+        keys = list(vae_subnodes.keys())
+        for key in keys:
+            vae_subnodes[f"{node_prefix}{key}"] = vae_subnodes.pop(key)
+        prompt.update(vae_subnodes)
+        return prompt
 
     def add_noise_node(
         self, 
@@ -165,10 +193,14 @@ class PreviewPromptData:
             MODEL_SD_MERGE_TURBO_TAG: self.to_prompt_merge_turbo,
             MODEL_SD_LORA_TAG: self.to_prompt_lora,
         }
+        prompt = None
         for keyword in keywordToFunc:
             if keyword == firstTag:
-                return keywordToFunc[keyword]()
-        return self.to_prompt_default()
+                prompt = keywordToFunc[keyword]()
+        if prompt is None:
+            prompt = self.to_prompt_default()
+        prompt = self.patch_vae(prompt, "999")
+        return prompt
     
     def guess_fit_current_options_to_prompt(self, prompt):
         node, node_list = self.get_node_with_type(prompt, ["KSampler"])
@@ -213,6 +245,17 @@ class PreviewPromptData:
         node, node_list = self.get_node_with_type(prompt, ["LatentUpscaleBy"])
         for key in node_list:
             prompt[key]["inputs"]["scale_by"] = self.current_options.upscale_factor
+        node, node_list = self.get_node_with_type(prompt, ["EmptyLatentImage"])
+        for key in node_list:
+            gen_size_arr = self.current_options.gen_size.split("x")
+            width = int(gen_size_arr[0])
+            height = int(gen_size_arr[1])
+            prompt[key]["inputs"]["width"] = width
+            prompt[key]["inputs"]["height"] = height
+        node, node_list = self.get_node_with_type(prompt, ["LoraLoader"])
+        for key in node_list:
+            prompt[key]["inputs"]["strength_model"] = self.current_options.lora_model_weight
+            prompt[key]["inputs"]["strength_clip"] = self.current_options.lora_clip_weight
         return prompt
             
     def to_prompt_lora(self):
@@ -266,10 +309,14 @@ class PreviewPromptData:
             MODEL_SD_MERGE_TURBO_TAG: self.to_prompt_merge_turbo_hr,
             MODEL_SD_LORA_TAG: self.to_prompt_lora_hr,
         }
+        prompt = None
         for keyword in keywordToFunc:
             if keyword == firstTag:
-                return keywordToFunc[keyword](filename)
-        return self.to_prompt_default_hr(filename)
+                prompt = keywordToFunc[keyword](filename)
+        if prompt is None:
+            prompt = self.to_prompt_default_hr()
+        prompt = self.patch_vae(prompt, "999")
+        return prompt
 
     def to_prompt_default_hr(self, filename):
         prompt = load_prompt("default-hr.json")
@@ -360,7 +407,7 @@ class GenerationOptionsPanel(wx.Panel):
 
         self.button_last_seed = wx.Button(self, wx.ID_ADD, "Last", size = self.Parent.FromDIP(wx.Size(50, 25)))
         def on_last_seed(e):
-            value = self.last_upscale_seed if self.upscaled else self.last_seed
+            value = self.dialog.last_upscale_seed if self.dialog.upscaled else self.dialog.last_seed
             if value == -1:
                 return
             self.spinner_seed.SetValue(str(value))
@@ -479,6 +526,26 @@ class GenerationOptionsPanel(wx.Panel):
             self.check_add_noise.SetValue(value != 0)
         self.spinner_add_noise.Bind(wx.EVT_TEXT, OnAddNoiseChange)
         
+        choices = ["512x512", "768x768", "1024x1024", "512x768", "512x1024", "768x1024", "1024x768", "1024x512", "768x512"]
+        sizerRightAfterGenSize = wx.BoxSizer(wx.HORIZONTAL)
+        self.label_gen_size = wx.StaticText(self, wx.ID_ANY, label="Gen Size")
+        sizerRightAfterGenSize.Add(
+            self.label_gen_size,
+            proportion=0,
+            border=5,
+            flag=wx.ALL,
+        )
+        self.gen_size = wx.ComboBox(
+            self, 
+            id=wx.ID_ANY, 
+            value=self.preview_options.gen_size, 
+            choices=choices, 
+            style=wx.TE_PROCESS_ENTER
+        )
+        sizerRightAfterGenSize.Add(self.gen_size, proportion=1, flag=wx.ALL, border=5)
+        self.label_gen_size.Show(not is_upscale)
+        self.gen_size.Show(not is_upscale)
+
         sizerRightAfterUpscale = wx.BoxSizer(wx.HORIZONTAL)
         self.label_upscale_factor = wx.StaticText(self, wx.ID_ANY, label="Upscale Factor")
         sizerRightAfterUpscale.Add(
@@ -572,8 +639,51 @@ class GenerationOptionsPanel(wx.Panel):
         scheduler_label.Show(show_scheduler)
         self.scheduler.Show(show_scheduler)
 
+        sizerRightAfterLoraWeight = wx.BoxSizer(wx.HORIZONTAL)
+        self.label_lora_m_weight = sizerRightAfterLoraWeight.Add(
+            wx.StaticText(self, wx.ID_ANY, label="Lora M.Weight"),
+            proportion=0,
+            border=5,
+            flag=wx.ALL,
+        )
+        self.spinner_m_weight = floatspin.FloatSpin(
+            self,
+            id=wx.ID_ANY,
+            min_val=0,
+            max_val=10,
+            increment=0.01,
+            value=self.preview_options.lora_model_weight,
+            agwStyle=floatspin.FS_LEFT,
+            # size=self.Parent.FromDIP(wx.Size(140, 25)),
+        )
+        self.spinner_m_weight.SetFormat("%f")
+        self.spinner_m_weight.SetDigits(2)
+        sizerRightAfterLoraWeight.Add(self.spinner_m_weight, proportion=1, flag=wx.ALL, border=5)
+        self.label_lora_m_weight.Show(False)
+
+        self.label_lora_c_weight = sizerRightAfterLoraWeight.Add(
+            wx.StaticText(self, wx.ID_ANY, label="Lora C.Weight"),
+            proportion=0,
+            border=5,
+            flag=wx.ALL,
+        )
+        self.spinner_c_weight = floatspin.FloatSpin(
+            self,
+            id=wx.ID_ANY,
+            min_val=0,
+            max_val=10,
+            increment=0.01,
+            value=self.preview_options.lora_clip_weight,
+            agwStyle=floatspin.FS_LEFT,
+            # size=self.Parent.FromDIP(wx.Size(140, 25)),
+        )
+        self.spinner_c_weight.SetFormat("%f")
+        self.spinner_c_weight.SetDigits(2)
+        sizerRightAfterLoraWeight.Add(self.spinner_c_weight, proportion=1, flag=wx.ALL, border=5)
+
+
         sizerRightAfterBaseLora = wx.BoxSizer(wx.HORIZONTAL)
-        lora_base_label = sizerRightAfterBaseLora.Add(
+        self.lora_base_label = sizerRightAfterBaseLora.Add(
             wx.StaticText(self, wx.ID_ANY, label="Lora Base"),
             proportion=0,
             border=5,
@@ -628,17 +738,42 @@ class GenerationOptionsPanel(wx.Panel):
 
         sizerRightAfterBaseLora.Add(self.lora_base, proportion=1, flag=wx.ALL, border=5)
         firstTagList = self.dialog.get_first_tag_list()
-        show_lora_base = False
+        show_lora = False
         if MODEL_SD_LORA_TAG in firstTagList:
-            show_lora_base = True
-        lora_base_label.Show(show_lora_base)
-        self.lora_base.Show(show_lora_base)
+            show_lora = True
+        self.lora_base_label.Show(show_lora)
+        self.lora_base.Show(show_lora)
+        self.label_lora_m_weight.Show(show_lora)
+        self.spinner_m_weight.Show(show_lora)
+        self.label_lora_c_weight.Show(show_lora)
+        self.spinner_c_weight.Show(show_lora)
+
+        sizerRightAfterVae = wx.BoxSizer(wx.HORIZONTAL)
+        sizerRightAfterVae.Add(
+            wx.StaticText(self, wx.ID_ANY, label="Vae"),
+            proportion=0,
+            border=5,
+            flag=wx.ALL,
+        )
+        choices = ["embeded"]
+        dynamic_choices = self.app.frame.results_panel.results_panel.list.get_all_names()
+        dynamic_choices = [choice for choice in dynamic_choices if "vae" in choice.lower()]
+        choices.extend(dynamic_choices)
+        self.vae = wx.ComboBox(
+            self, 
+            id=wx.ID_ANY, 
+            value=self.preview_options.vae, 
+            choices=choices,
+            size = self.Parent.FromDIP(wx.Size(200, 25)),
+            style=wx.TE_PROCESS_ENTER,
+        )
+        sizerRightAfterVae.Add(self.vae, proportion=1, flag=wx.ALL, border=5)
 
         self.text_positive = wx.TextCtrl(
             self,
             id=wx.ID_ANY,
             value=self.preview_options.positive,
-            size=self.Parent.FromDIP(wx.Size(250, 100)),
+            size=self.Parent.FromDIP(wx.Size(250, 60)),
             style=wx.TE_MULTILINE | wx.TE_PROCESS_ENTER,
         )
         
@@ -646,21 +781,24 @@ class GenerationOptionsPanel(wx.Panel):
             self,
             id=wx.ID_ANY,
             value=self.preview_options.negative,
-            size=self.Parent.FromDIP(wx.Size(250, 100)),
+            size=self.Parent.FromDIP(wx.Size(250, 60)),
             style=wx.TE_MULTILINE | wx.TE_PROCESS_ENTER,
         )
 
         sizerRight.Add(wx.StaticText(self, wx.ID_ANY, label="Positive"))
-        sizerRight.Add(self.text_positive, proportion=3, flag=wx.ALL | wx.EXPAND)
+        sizerRight.Add(self.text_positive, proportion=2, flag=wx.ALL | wx.EXPAND)
         sizerRight.Add(wx.StaticText(self, wx.ID_ANY, label="Negative"))
-        sizerRight.Add(self.text_negative, proportion=3, flag=wx.ALL | wx.EXPAND)
+        sizerRight.Add(self.text_negative, proportion=2, flag=wx.ALL | wx.EXPAND)
         sizerRight.Add(sizerRightAfter, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfterCFGStepClip, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfterDenoise, proportion=1, flag=wx.ALL)
+        sizerRight.Add(sizerRightAfterGenSize, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfterUpscale, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfterSampler, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfterScheduler, proportion=1, flag=wx.ALL)
+        sizerRight.Add(sizerRightAfterLoraWeight, proportion=1, flag=wx.ALL)
         sizerRight.Add(sizerRightAfterBaseLora, proportion=1, flag=wx.ALL)
+        sizerRight.Add(sizerRightAfterVae, proportion=1, flag=wx.ALL)
 
         self.SetSizerAndFit(sizerRight)
 
@@ -905,6 +1043,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         notes = replace_or_insert(notes, REGEX_STEPS, f"steps: {panel.spinner_steps.GetValue()}\n")
         notes = replace_or_insert(notes, REGEX_ADD_NOISE, f"add noise: {panel.spinner_add_noise.GetValue()}\n")
         notes = replace_or_insert(notes, REGEX_SAMPLER, f"sampler: {panel.sampler.GetValue()}\n")
+        notes = replace_or_insert(notes, REGEX_VAE, f"vae: {panel.vae.GetValue()}\n")
         # turbo and xl no clip
         firstTag = self.get_main_first_tag()
         if firstTag != MODEL_SD_TURBO_TAG and firstTag != MODEL_SD_XL_TAG:
@@ -914,7 +1053,13 @@ class PreviewGeneratorDialog(wx.Dialog):
             notes = replace_or_insert(notes, REGEX_SCHEDULER, f"scheduler: {panel.scheduler.GetValue()}\n")
         # only lora need base model
         if firstTag == MODEL_SD_LORA_TAG:
+            notes = replace_or_insert(notes, REGEX_LORA_MODEL_WEIGHT, f"lora model weight: {panel.spinner_m_weight.GetValue()}\n")
+            notes = replace_or_insert(notes, REGEX_LORA_CLIP_WEIGHT, f"lora clip weight: {panel.spinner_c_weight.GetValue()}\n")
             notes = replace_or_insert(notes, REGEX_LORA_BASE, f"lora base: {panel.lora_base.GetValue()}\n")
+        # only generation need gen size
+        if not is_upscale:
+            notes = replace_or_insert(notes, REGEX_GEN_SIZE, f"gen size: {panel.gen_size.GetValue()}\n")
+        # only upscale need upscale factor
         if is_upscale:
             notes = replace_or_insert(notes, REGEX_UPSCALE_FACTOR, f"upscale factor: {panel.spinner_upscale_factor.GetValue()}\n")
         return notes
@@ -988,12 +1133,16 @@ class PreviewGeneratorDialog(wx.Dialog):
             cfg=int(panel.spinner_cfg.GetValue()),
             steps=int(panel.spinner_steps.GetValue()),
             clip=int(panel.spinner_clip.GetValue()),
+            gen_size=panel.gen_size.GetValue(),
             upscale_factor=float(panel.spinner_upscale_factor.GetValue()),
             add_noise=float(panel.spinner_add_noise.GetValue()),
             check_add_noise=bool(panel.check_add_noise.GetValue()),
             sampler=panel.sampler.GetValue(),
             scheduler=panel.scheduler.GetValue(),
+            lora_model_weight=float(panel.spinner_m_weight.GetValue()),
+            lora_clip_weight=float(panel.spinner_c_weight.GetValue()),
             lora_base=panel.lora_base.GetValue(),
+            vae=panel.vae.GetValue(),
         )
 
     def assemble_prompt_data(self, item):
@@ -1009,12 +1158,16 @@ class PreviewGeneratorDialog(wx.Dialog):
             options.cfg = inputs.cfg if inputs.cfg != initial_inputs.cfg else options.cfg
             options.steps = inputs.steps if inputs.steps != initial_inputs.steps else options.steps
             options.clip = inputs.clip if inputs.clip != initial_inputs.clip else options.clip
+            options.gen_size = inputs.gen_size if inputs.gen_size != initial_inputs.gen_size else options.gen_size
             options.upscale_factor = inputs.upscale_factor if inputs.upscale_factor != initial_inputs.upscale_factor else options.upscale_factor
             options.add_noise = inputs.add_noise if inputs.add_noise != initial_inputs.add_noise else options.add_noise
             options.check_add_noise = inputs.check_add_noise
             options.sampler = inputs.sampler if inputs.sampler != initial_inputs.sampler else options.sampler
             options.scheduler = inputs.scheduler if inputs.scheduler != initial_inputs.scheduler else options.scheduler
+            options.lora_model_weight = inputs.lora_model_weight if inputs.lora_model_weight != initial_inputs.lora_model_weight else options.lora_model_weight
+            options.lora_clip_weight = inputs.lora_clip_weight if inputs.lora_clip_weight != initial_inputs.lora_clip_weight else options.lora_clip_weight
             options.lora_base = inputs.lora_base if inputs.lora_base != initial_inputs.lora_base else options.lora_base
+            options.vae = inputs.vae if inputs.vae != initial_inputs.vae else options.vae
             return options
         gen_input = self.get_prompt_options_for_panel(self.gen_panel)
         gen_options = self.item_to_preview_options(item, REGEX_GEN_PREFIX)
@@ -1207,30 +1360,22 @@ class PreviewGeneratorDialog(wx.Dialog):
                 keywords = ""
             prompt += keywords
             return prompt
-        # build positive prompt
         positive = get_default_prompt("keywords", REGEX_POSITIVE, DEFAULT_POSITIVE)
-        # build negative prompt
         negative = get_default_prompt("negative_keywords", REGEX_NEGATIVE, DEFAULT_NEGATIVE)
-        # build seed
         seed = int(regex_get(REGEX_SEED, prefix, notes, DEFAULT_SEED))
-        # build denoise
         denoise = float(regex_get(REGEX_DENOISE, prefix, notes, DEFAULT_DENOISE if not is_upscale else DEFAULT_UPSCALE_DENOISE))
-        # build cfg
         cfg = int(regex_get(REGEX_CFG, prefix, notes, DEFAULT_CFG))
-        # build steps
         steps = int(regex_get(REGEX_STEPS, prefix, notes, DEFAULT_STEPS))
-        # build clip
         clip = int(regex_get(REGEX_CLIP, prefix, notes, DEFAULT_CLIP))
-        # build upscale factor
+        gen_size = regex_get(REGEX_GEN_SIZE, prefix, notes, DEFAULT_GEN_SIZE)
         upscale_factor = float(regex_get(REGEX_UPSCALE_FACTOR, prefix, notes, DEFAULT_UPSCALE_FACTOR))
-        # build add noise
         add_noise = float(regex_get(REGEX_ADD_NOISE, prefix, notes, DEFAULT_ADD_NOISE))
-        # build sampler
         sampler = regex_get(REGEX_SAMPLER, prefix, notes, DEFAULT_SAMPLER)
-        # build scheduler
         scheduler = regex_get(REGEX_SCHEDULER, prefix, notes, DEFAULT_SCHEDULER)
-        # build lora base
+        lora_model_weight = float(regex_get(REGEX_LORA_MODEL_WEIGHT, prefix, notes, DEFAULT_LORA_MODEL_WEIGHT))
+        lora_clip_weight = float(regex_get(REGEX_LORA_CLIP_WEIGHT, prefix, notes, DEFAULT_LORA_CLIP_WEIGHT))
         lora_base = regex_get(REGEX_LORA_BASE, prefix, notes, DEFAULT_LORA_BASE)
+        vae = regex_get(REGEX_VAE, prefix, notes, DEFAULT_VAE)
         previewPrompOptions = GeneratePreviewsOptions(
             positive = positive,
             negative = negative,
@@ -1239,20 +1384,25 @@ class PreviewGeneratorDialog(wx.Dialog):
             cfg = cfg,
             steps = steps,
             clip = clip,
+            gen_size = gen_size,
             upscale_factor = upscale_factor,
             add_noise = add_noise,
             check_add_noise = add_noise != 0,
             sampler = sampler,
             scheduler = scheduler,
-            lora_base = lora_base
+            lora_model_weight = lora_model_weight,
+            lora_clip_weight = lora_clip_weight,
+            lora_base = lora_base,
+            vae = vae,
         )
         return previewPrompOptions
     
     def get_first_tag_list(self):
-        return [item["tags"].split(",")[0].strip() for item in self.items]
+        return [(item["tags"].split(",")[0].strip() if item["tags"] else "") for item in self.items]
     
     def get_main_first_tag(self):
-        return self.items[0]["tags"].split(",")[0].strip()
+        item = self.items[0]
+        return item["tags"].split(",")[0].strip() if item["tags"] else ""
 
 
 def any_have_previews(items):

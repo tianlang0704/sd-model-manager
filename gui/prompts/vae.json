@@ -1,0 +1,11 @@
+{
+  "21": {
+    "inputs": {
+      "vae_name": "Anything-V3.0.vae.pt"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  }
+}

@@ -5,7 +5,7 @@ configargparse>=1.5.3
 sqlalchemy
 pillow
 safetensors
-torch>=2.0.1
+torch>=2.0.0
 tqdm
 sqlakeyset
 aiosqlite>=0.17.0

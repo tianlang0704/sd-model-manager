@@ -848,6 +848,9 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.last_seed = -1
         self.last_upscale_seed = -1
         self.node_text = ""
+        self.interrupted = False
+        self.executor = None
+        self.status_prefix = ""
 
         utils.set_icons(self)
         self.autogen = False
@@ -856,7 +859,6 @@ class PreviewGeneratorDialog(wx.Dialog):
 
         # Status controls/buttons
         self.status_text = wx.StaticText(self, -1, "Ready")
-        self.models_text = wx.StaticText(self, wx.ID_ANY, label=f"Selected models: {len(self.items)}")
         self.gauge = wx.Gauge(self, -1, 100, size=app.FromDIP(800, 32))
         self.image_panel = ImagePanel(self, style=wx.SUNKEN_BORDER, size=app.FromDIP(512, 512), app=self.app)
         main_item = items[0] if items and len(items) > 0 else None
@@ -911,7 +913,6 @@ class PreviewGeneratorDialog(wx.Dialog):
 
         sizerRight = wx.StaticBoxSizer(wx.VERTICAL, self, label="Parameters")
         sizerRight.Add(self.notebook, proportion=1, flag=wx.ALL)
-        sizerRight.Add(self.models_text, proportion=0, border=5, flag=wx.ALL)
 
         sizerMain = wx.FlexGridSizer(1, 2, 10, 10)
         sizerMain.AddMany([(sizerLeft, 1), (sizerRight, 1, wx.EXPAND)])
@@ -991,50 +992,59 @@ class PreviewGeneratorDialog(wx.Dialog):
     async def OnOK(self, evt):
         self.button_regenerate.Disable()
         self.button_upscale.Disable()
-        self.button_cancel.Disable()
         self.button_ok.Disable()
-        self.gen_panel.text_positive.Disable()
-        self.gen_panel.text_negative.Disable()
-        self.gen_panel.spinner_seed.Disable()
-        self.gen_panel.spinner_denoise.Disable()
-        self.ups_panel.text_positive.Disable()
-        self.ups_panel.text_negative.Disable()
-        self.ups_panel.spinner_seed.Disable()
-        self.ups_panel.spinner_denoise.Disable()
 
         if self.result is not None:
             await self.save_preview_image(self.items[0], self.result)
 
         if len(self.items) > 1:
-            self.status_text.SetLabel(f"Generating previews...")
+            self.status_text.SetLabel(f"Generating previews for all items...")
 
             upscaled = self.upscaled
             self.autogen = True
-            for i, item in enumerate(self.items[1:]):
+            rest_of_the_items = self.items[1:]
+            rest_of_the_data = [self.assemble_prompt_data(item) for item in rest_of_the_items]
+            for i, item in enumerate(rest_of_the_items):
+                data = rest_of_the_data[i]
                 filename = os.path.basename(item["filepath"])
-                self.status_text.SetLabel(f"Generating preview for {filename}")
-                self.models_text.SetLabel(f"Progress: {i}/{len(self.items)-1}")
-                self.gen_panel.spinner_seed.SetValue(str(self.last_seed))
+                self.status_prefix = f"{i}/{len(self.items)-1}, {filename}: "
+                self.status_text.SetLabel(f"{self.status_prefix}Generating preview")
                 e = Event()
-                self.start_prompt(item, e=e)
+                self.start_prompt(data, e=e)
                 await e.wait()
+                if self.interrupted:
+                    break
                 if upscaled:
-                    self.status_text.SetLabel("Starting upscale...")
-                    self.ups_panel.spinner_seed.SetValue(str(self.last_upscale_seed))
+                    self.status_text.SetLabel(f"{self.status_prefix}Starting upscale...")
                     e = Event()
-                    thread = self.upscale_prompt(item, e=e)
+                    self.upscale_prompt(data, e=e)
                     await e.wait()
+                    if self.interrupted:
+                        break
                 if self.result is not None:
                     await self.save_preview_image(item, self.result)
         else:
             self.status_text.SetLabel("Done!")
+        self.status_prefix = ""
+        self.autogen = False
 
+        if self.interrupted:
+            return
         await self.app.frame.results_panel.re_search()
         self.AsyncEndModal(wx.ID_OK)
         
 
     def OnCancel(self, evt):
-        self.AsyncEndModal(wx.ID_CANCEL)
+        if self.executor is not None:
+            try:
+                self.executor.interrupt()
+            except Exception as ex:
+                self.on_fail(ex)
+            self.executor = None
+            self.interrupted = True
+            self.status_text.SetLabel(f"{self.status_prefix}Interrupting")
+        else:
+            self.AsyncEndModal(wx.ID_CANCEL)
 
     async def OnClose(self, evt):
         if self.autogen:
@@ -1093,21 +1103,23 @@ class PreviewGeneratorDialog(wx.Dialog):
 
     def OnRegenerate(self, evt):
         self.status_text.SetLabel("Starting...")
-        self.start_prompt(self.items[0])
+        data = self.assemble_prompt_data(self.items[0])
+        self.start_prompt(data)
 
     def OnUpscale(self, evt):
         self.status_text.SetLabel("Starting upscale...")
-        self.upscale_prompt(self.items[0])
+        data = self.assemble_prompt_data(self.items[0])
+        self.upscale_prompt(data)
 
-    def upscale_prompt(self, item, e=None):
-        return utils.start_async_thread(self.run_upscale_prompt, item, e)
+    def upscale_prompt(self, data, e=None):
+        return utils.start_async_thread(self.run_upscale_prompt, data, e)
 
-    def start_prompt(self, item, e=None):
-        return utils.start_async_thread(self.run_prompt, item, e)
+    def start_prompt(self, data, e=None):
+        return utils.start_async_thread(self.run_prompt, data, e)
 
-    async def run_prompt(self, item, e):
+    async def run_prompt(self, data, e):
         try:
-            self.do_execute(item)
+            self.do_execute(data)
         except CancelException:
             pass
         except Exception as ex:
@@ -1117,9 +1129,9 @@ class PreviewGeneratorDialog(wx.Dialog):
         if e is not None:
             e.set()
 
-    async def run_upscale_prompt(self, item, e):
+    async def run_upscale_prompt(self, data, e):
         try:
-            self.do_upscale(item)
+            self.do_upscale(data)
         except CancelException:
             pass
         except Exception as ex:
@@ -1230,23 +1242,30 @@ class PreviewGeneratorDialog(wx.Dialog):
                         self.on_msg_progress(status)
                 else:
                     self.image_panel.LoadImageFromBytes(msg["data"])
-
         return prompt_id
 
     def before_execute(self):
         self.result = None
         self.last_data = None
         self.upscaled = False
+        self.interrupted = False
         self.button_regenerate.Disable()
         self.button_upscale.Disable()
         self.button_ok.Disable()
 
     def after_execute(self):
-        if not self.autogen:
+        seed = self.last_upscale_seed if self.upscaled else self.last_seed
+        if self.interrupted:
             self.button_regenerate.Enable()
             self.button_ok.Enable()
             self.button_upscale.Enable()
-            seed = self.last_upscale_seed if self.upscaled else self.last_seed
+            self.status_text.SetLabel(f"Interrupted. (seed: {seed})")
+            self.status_prefix = ""
+            self.gauge.SetValue(0)
+        elif not self.autogen:
+            self.button_regenerate.Enable()
+            self.button_ok.Enable()
+            self.button_upscale.Enable()
             self.status_text.SetLabel(f"Finished. (seed: {seed})")
 
     def get_output_image(self, prompt_id):
@@ -1262,7 +1281,7 @@ class PreviewGeneratorDialog(wx.Dialog):
             return None, None
         return image_datas[0], image_files[0]
 
-    def do_execute(self, item):
+    def do_execute(self, data):
         self.before_execute()
         self.last_output = None
 
@@ -1270,9 +1289,10 @@ class PreviewGeneratorDialog(wx.Dialog):
         image_data = None
         image_location = None
         with ComfyExecutor(self.app) as executor:
-            data = self.assemble_prompt_data(item)
+            self.executor = executor
             prompt = data.to_prompt()
             prompt_id = self.enqueue_prompt_and_wait(executor, prompt)
+            self.executor = None
         if prompt_id is not None:
             image_data, image_location = self.get_output_image(prompt_id)
         if image_data is not None:
@@ -1286,15 +1306,16 @@ class PreviewGeneratorDialog(wx.Dialog):
 
         self.after_execute()
 
-    def do_upscale(self, item):
+    def do_upscale(self, data):
         self.before_execute()
         prompt_id = None
         image_data = None
         image_location = None
         with ComfyExecutor(self.app) as executor:
-            data = self.assemble_prompt_data(item)
+            self.executor = executor
             prompt = data.to_hr_prompt(self.last_output)
             prompt_id = self.enqueue_prompt_and_wait(executor, prompt)
+            self.executor = None
         if prompt_id is not None:
             image_data, image_location = self.get_output_image(prompt_id)
         if image_data is not None:
@@ -1313,14 +1334,14 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.executing_node_id = node_id
         class_type = prompt[node_id]["class_type"]
         self.node_text = f"Node: {class_type}"
-        self.status_text.SetLabel(self.node_text)
+        self.status_text.SetLabel(f"{self.status_prefix}{self.node_text}")
         self.gauge.SetRange(100)
         self.gauge.SetValue(0)
 
     def on_msg_progress(self, status):
         value = status["data"]["value"]
         max = status["data"]["max"]
-        self.status_text.SetLabel(f"{self.node_text} ({value}/{max})")
+        self.status_text.SetLabel(f"{self.status_prefix}{self.node_text} ({value}/{max})")
         self.gauge.SetRange(max)
         self.gauge.SetValue(value)
 

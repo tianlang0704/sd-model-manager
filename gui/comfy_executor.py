@@ -61,3 +61,8 @@ class ComfyExecutor:
             return {"type": "json", "data": message}
         else:
             return {"type": "binary", "data": out}
+        
+    def interrupt(self):
+        req = urllib.request.Request(f"http://{self.server_address}/interrupt")
+        req.method = "POST"
+        urllib.request.urlopen(req)

@@ -910,6 +910,7 @@ class PreviewGeneratorDialog(wx.Dialog):
         self.ups_panel = GenerationOptionsPanel(self.notebook, self.app, self.ups_preview_options, is_upscale=True)
         self.notebook.AddPage(self.gen_panel, "Generation")
         self.notebook.AddPage(self.ups_panel, "Upscale")
+        self.Bind(wx.EVT_MOUSEWHEEL, self.OnMouseWheel)
 
         sizerRight = wx.StaticBoxSizer(wx.VERTICAL, self, label="Parameters")
         sizerRight.Add(self.notebook, proportion=1, flag=wx.ALL)
@@ -928,6 +929,12 @@ class PreviewGeneratorDialog(wx.Dialog):
         wrapper.Add(sizer, 1, wx.EXPAND | wx.ALL, 10)
 
         self.SetSizerAndFit(wrapper)
+        
+    def OnMouseWheel(self, e):
+        if e.GetWheelRotation() > 0:
+            self.notebook.AdvanceSelection(False)
+        else:
+            self.notebook.AdvanceSelection(True)
 
     def set_preview_image(self, image):
         self.image_panel.LoadImageFrompath(image)

@@ -149,6 +149,13 @@ def create_popup_menu_for_item(target, evt, app):
         ),
         PopupMenuSeparator(),
         PopupMenuItem(
+            "Change Root",
+            lambda t, e: app.frame.OnChangeRoot(None),
+            is_async=True,
+            icon=icon_picture_delete,
+        ),
+        PopupMenuSeparator(),
+        PopupMenuItem(
             "Remove Data",
             lambda t, e: app.frame.OnRemoveData(None),
             is_async=True,

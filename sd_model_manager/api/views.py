@@ -192,6 +192,8 @@ async def update_lora(request):
             "description",
             "notes",
             "rating",
+            "root_path",
+            "filepath",
         ]
 
         for field in fields:
@@ -228,8 +230,14 @@ async def update_lora(request):
             row.preview_images = new_images
             updated += 1
 
-        await s.commit()
+        error = None
+        try:
+            await s.commit()
+        except Exception as e:
+            error = str(e)
 
-        resp = {"status": "ok", "fields_updated": updated}
-
+        if error:
+            resp = {"status": "error", "message": error}
+        else:
+            resp = {"status": "ok", "fields_updated": updated}
         return web.json_response(resp, dumps=simplejson.dumps)

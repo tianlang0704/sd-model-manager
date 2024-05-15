@@ -59,7 +59,7 @@ def find_image(filepath, load=False, fuzzy=True):
     path = os.path.dirname(filepath)
     basename = os.path.splitext(os.path.basename(filepath))[0]
 
-    for s in [".preview.png", ".png"]:
+    for s in [".png", ".preview.png"]:
         file = os.path.join(path, basename + s)
         if load:
             image = try_load_image(file)

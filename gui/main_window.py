@@ -259,6 +259,33 @@ class MainWindow(wx.Frame):
         print(result)
         await self.results_panel.re_search()
 
+    async def OnChangeRoot(self, evt):
+        selection = self.results_panel.get_selection()
+        if len(selection) == 0:
+            return
+        dlg = wx.DirDialog(self, "Choose a directory:", style=wx.DD_DEFAULT_STYLE)
+        if dlg.ShowModal() == wx.ID_OK:
+            new_root = dlg.GetPath()
+        dlg.Destroy()
+        if not new_root:
+            return
+        for item in selection:
+            id = item["id"]
+            root_path = item["root_path"]
+            filepath = item["filepath"]
+            new_filepath = filepath.replace(root_path, new_root)
+            if new_filepath == filepath:
+                continue
+            changes = {"root_path": new_root, "filepath": new_filepath}
+            resp = await self.app.api.update_lora(id, changes)
+            status = resp.get("status", "error")
+            if status == "error":
+                message = resp.get("message", "Unknown error")
+                msg = wx.MessageBox(message, "Error", wx.OK | wx.ICON_ERROR)
+                msg.ShowModal()
+                break
+        await self.results_panel.re_search()
+            
 
     async def SubItemSelected(self, key, items):
         selected = len(items) > 0

@@ -1248,7 +1248,10 @@ class PreviewGeneratorDialog(wx.Dialog):
                     elif ty == "progress":
                         self.on_msg_progress(status)
                 else:
-                    self.image_panel.LoadImageFromBytes(msg["data"])
+                    try:
+                        self.image_panel.LoadImageFromBytes(msg["data"])
+                    except:
+                        pass
         return prompt_id
 
     def before_execute(self):

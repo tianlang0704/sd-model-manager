@@ -1099,12 +1099,11 @@ class PreviewGeneratorDialog(wx.Dialog):
         return notes
 
     async def OnSave(self, evt):
-        main_item = self.items[0]
-        notes = main_item.get("notes") or ""
-        notes = self.panel_to_notes(self.ups_panel, notes, REGEX_UPS_PREFIX, True)
-        notes = self.panel_to_notes(self.gen_panel, notes, REGEX_GEN_PREFIX)
-        
-        await self.app.api.update_lora(main_item["id"], {"notes": notes})
+        for item in self.items:
+            notes = item.get("notes") or ""
+            notes = self.panel_to_notes(self.ups_panel, notes, REGEX_UPS_PREFIX, True)
+            notes = self.panel_to_notes(self.gen_panel, notes, REGEX_GEN_PREFIX)
+            await self.app.api.update_lora(item["id"], {"notes": notes})
         await self.app.frame.results_panel.re_search()
         
 

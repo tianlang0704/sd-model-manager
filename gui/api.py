@@ -55,10 +55,10 @@ class ModelManagerAPI:
         with urllib.request.urlopen(req, data=data) as response:
             return response.read()
     
-    async def remove_lora(self, id_or_list):
+    async def remove_lora(self, id_or_list, is_remove_model=False):
         if isinstance(id_or_list, list):
             id_or_list = ",".join(map(str, id_or_list))
-        async with self.client.delete(self.base_url() + f"/api/v1/lora/{id_or_list}") as response:
+        async with self.client.delete(self.base_url() + f"/api/v1/lora/{id_or_list}/{is_remove_model}") as response:
             if response.status != 200:
                 print(await response.text())
             return await response.json()

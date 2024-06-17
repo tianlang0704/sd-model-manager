@@ -238,16 +238,21 @@ class MainWindow(wx.Frame):
         dialog.CenterOnParent(wx.BOTH)
         await wxasync.AsyncShowDialogModal(dialog)
 
-    async def OnRemoveData(self, evt):
+    async def OnRemoveData(self, evt, is_remove_model=False):
         selection = self.results_panel.get_selection()
         if len(selection) == 0:
             return
         targetNameList = [item["filename"] for item in selection]
         targetIdList = [item["id"] for item in selection]
         filenameStr = "\n".join(targetNameList)
+        msg = ""
+        if is_remove_model:
+            msg = f"Remove data for model:\n{filenameStr}\nThis operation !!!will!!! remove all data saved AND THE MODEL AND PREVIEW IMAGE and is not reversible. \nAre you sure you want to continue?"
+        else:
+            msg = f"Remove data for model:\n{filenameStr}\nThis operation will remove all data saved (not the model and preview image) and is not reversible. \nAre you sure you want to continue?"
         dlg = wx.MessageDialog(
             self.app.frame,
-            f"Remove data for model:\n{filenameStr}\nThis operation will remove all data saved (not the model and preview image) and is not reversible. Are you sure you want to continue?",
+            msg,
             "Comfirm Delete",
             wx.YES_NO | wx.ICON_QUESTION,
         )

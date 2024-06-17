@@ -161,6 +161,12 @@ def create_popup_menu_for_item(target, evt, app):
             is_async=True,
             icon=icon_picture_delete,
         ),
+        PopupMenuItem(
+            "Remove Model",
+            lambda t, e: app.frame.OnRemoveData(None, is_remove_model = True),
+            is_async=True,
+            icon=icon_picture_delete,
+        ),
     ]
     items = [i for i in items if i]
 

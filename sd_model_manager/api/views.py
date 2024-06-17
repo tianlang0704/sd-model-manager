@@ -135,12 +135,13 @@ async def show_loras(request):
 
         return web.json_response(resp, dumps=simplejson.dumps)
 
-@routes.delete("/api/v1/lora/{id_or_list}")
+@routes.delete("/api/v1/lora/{id_or_list}/{is_remove_model}")
 async def delete_lora(request):
     id_or_list = request.match_info.get("id_or_list", None)
     if id_or_list is None:
         return web.json_response({"message": "No LoRA ID provided"}, status=404)
-
+    is_remove_model = request.match_info.get("is_remove_model", False)
+    model_path_list = []
     async with request.app["sdmm_db"].AsyncSession() as s:
         query = select(LoRAModel).filter(LoRAModel.id.in_(id_or_list.split(",")))
         query = query.options(selectin_polymorphic(SDModel, [LoRAModel]))
@@ -150,9 +151,33 @@ async def delete_lora(request):
                 {"message": f"LoRA not found: {id_or_list}"}, status=404
             )
         for row in rows:
-            await s.delete(row[0])
+            row = row[0]
+            model_path_list.append(row.filepath)
+            await s.delete(row)
         await s.commit()
-        return web.json_response({"status": "ok"})
+    
+    if is_remove_model and model_path_list:
+        for model_path in model_path_list:
+            # delete model
+            if os.path.exists(model_path):
+                os.remove(model_path)
+            # delete preview images
+            model_folder = os.path.dirname(model_path)
+            model_name = os.path.basename(model_path)
+            model_name_without_ext = os.path.splitext(model_name)[0]
+            preview_main = model_name_without_ext + ".png"
+            preview_main_path = os.path.join(model_folder, preview_main)
+            if os.path.exists(preview_main_path):
+                os.remove(preview_main_path)
+            #find all files start with preview_prefix
+            preview_prefix = model_name_without_ext + ".preview"
+            previews = [f for f in os.listdir(model_folder) if f.startswith(preview_prefix)]
+            for preview in previews:
+                preview_path = os.path.join(model_folder, preview)
+                if os.path.exists(preview_path):
+                    os.remove(preview_path)
+            
+    return web.json_response({"status": "ok"})
     
 @routes.patch("/api/v1/lora/{id}")
 async def update_lora(request):

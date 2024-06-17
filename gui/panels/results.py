@@ -113,11 +113,14 @@ class ResultsListCtrl(ultimatelistctrl.UltimateListCtrl):
         self.Focus(0)
         self.pub.publish(Key("item_selected"), self.get_selection())
 
-    def restore_selection(self, selection, scrollY=None):
+    def restore_selection(self, selection, scrollY=None, main_index_before=None):
         selected_index = [self.index_from_id(item["id"]) for item in selection]
         selected_index = [i for i in selected_index if i is not None]
-        if len(selected_index) <= 0:
+        valid_selection_num = len(selected_index)
+        if valid_selection_num <= 0 and (main_index_before is None or main_index_before <= 0):
             return False
+        if valid_selection_num <= 0:
+            selected_index = [min(main_index_before - 1, len(self.filtered) - 1)]
         self.ClearSelection()
         for index in selected_index:
             self.Select(index, 1)
@@ -517,6 +520,8 @@ class ResultsNotebook(wx.Panel):
 
         list = self.results_panel.list
         selection_before = list.get_selection()
+        if len(selection_before) > 0:
+            main_index_before = list.index_from_id(selection_before[0]["id"])
         scroll_before = list.GetScrollPos(wx.VERTICAL)
         list.DeleteAllItems()
         list.Arrange(ultimatelistctrl.ULC_ALIGN_DEFAULT)
@@ -525,7 +530,7 @@ class ResultsNotebook(wx.Panel):
             list.filter = None
         list.refresh_filtered_data()
         list.refresh_text_view()
-        if restore_list and not list.restore_selection(selection_before, scroll_before):
+        if restore_list and not list.restore_selection(selection_before, scroll_before, main_index_before):
             list.select_default()
         self.results_gallery.needs_update = True
         if self.notebook.GetSelection() == 1:
